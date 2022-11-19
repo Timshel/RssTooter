@@ -17,6 +17,10 @@
 
 package db
 
+import (
+   "github.com/uptrace/bun"
+)
+
 const (
 	// DBTypePostgres represents an underlying POSTGRES database type.
 	DBTypePostgres string = "POSTGRES"
@@ -53,4 +57,5 @@ type DB interface {
 	Timeline
 	User
 	Tombstone
+	DB() *bun.DB
 }

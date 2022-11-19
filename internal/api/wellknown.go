@@ -23,6 +23,7 @@ import (
 	"github.com/superseriousbusiness/gotosocial/internal/api/wellknown/nodeinfo"
 	"github.com/superseriousbusiness/gotosocial/internal/api/wellknown/webfinger"
 	"github.com/superseriousbusiness/gotosocial/internal/middleware"
+	"github.com/superseriousbusiness/gotosocial/internal/rss"
 	"github.com/superseriousbusiness/gotosocial/internal/processing"
 	"github.com/superseriousbusiness/gotosocial/internal/router"
 )
@@ -52,10 +53,10 @@ func (w *WellKnown) Route(r *router.Router, m ...gin.HandlerFunc) {
 	w.hostMeta.Route(wellKnownGroup.Handle)
 }
 
-func NewWellKnown(p *processing.Processor) *WellKnown {
+func NewWellKnown(rssTooter rss.RssTooter, p *processing.Processor) *WellKnown {
 	return &WellKnown{
 		nodeInfo:  nodeinfo.New(p),
-		webfinger: webfinger.New(p),
+		webfinger: webfinger.New(rssTooter, p),
 		hostMeta:  hostmeta.New(p),
 	}
 }

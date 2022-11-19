@@ -704,7 +704,7 @@ func (d *Dereferencer) enrichAccount(
 	latestAcc.FetchedAt = time.Now()
 
 	// Ensure the account's avatar media is populated, passing in existing to check for chages.
-	if err := d.fetchRemoteAccountAvatar(ctx, tsport, account, latestAcc); err != nil {
+	if err := d.FetchRemoteAccountAvatar(ctx, tsport, latestAcc); err != nil {
 		log.Errorf(ctx, "error fetching remote avatar for account %s: %v", uri, err)
 	}
 
@@ -757,36 +757,11 @@ func (d *Dereferencer) enrichAccount(
 	return latestAcc, apubAcc, nil
 }
 
-func (d *Dereferencer) fetchRemoteAccountAvatar(ctx context.Context, tsport transport.Transport, existing, latestAcc *gtsmodel.Account) error {
+func (d *Dereferencer) FetchRemoteAccountAvatar(ctx context.Context, tsport transport.Transport, latestAcc *gtsmodel.Account) error {
 	if latestAcc.AvatarRemoteURL == "" {
 		// No avatar set on newest model, leave
 		// latest avatar attachment ID empty.
 		return nil
-	}
-
-	// By default we keep the previous media attachment ID. This will only
-	// be changed if and when we have the new media loaded into storage.
-	latestAcc.AvatarMediaAttachmentID = existing.AvatarMediaAttachmentID
-
-	// If we had a media attachment ID already, and the URL
-	// of the attachment hasn't changed from existing -> latest,
-	// then we may be able to just keep our existing attachment
-	// without having to make any remote calls.
-	if latestAcc.AvatarMediaAttachmentID != "" &&
-		existing.AvatarRemoteURL == latestAcc.AvatarRemoteURL {
-
-		// Ensure we have media attachment with the known ID.
-		media, err := d.state.DB.GetAttachmentByID(ctx, existing.AvatarMediaAttachmentID)
-		if err != nil && !errors.Is(err, db.ErrNoEntries) {
-			return gtserror.Newf("error getting attachment %s: %w", existing.AvatarMediaAttachmentID, err)
-		}
-
-		// Ensure attachment has correct properties.
-		if media != nil && media.RemoteURL == latestAcc.AvatarRemoteURL {
-			// We already have the most up-to-date
-			// media attachment, keep using it.
-			return nil
-		}
 	}
 
 	// If we reach here, we know we need to fetch the most

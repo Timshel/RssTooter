@@ -1101,3 +1101,10 @@ advanced-csp-extra-uris: []
 # Options: ["block", "allow", ""]
 # Default: ""
 advanced-header-filter-mode: ""
+
+#############################
+#####  NAPPER SETTINGS  #####
+#############################
+
+nap-nitter-host: "https://"
+nap-user-password: "randomPasswordForBotAccounts"
