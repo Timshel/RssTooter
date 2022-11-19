@@ -536,7 +536,7 @@ func (d *Dereferencer) enrichStatus(
 	}
 
 	// Ensure the status' media attachments are populated, passing in existing to check for changes.
-	if err := d.fetchStatusAttachments(ctx, tsport, status, latestStatus); err != nil {
+	if err := d.FetchStatusAttachments(ctx, tsport, status, latestStatus); err != nil {
 		return nil, nil, gtserror.Newf("error populating attachments for status %s: %w", uri, err)
 	}
 
@@ -990,7 +990,7 @@ func (d *Dereferencer) fetchStatusPoll(ctx context.Context, existing, status *gt
 	}
 }
 
-func (d *Dereferencer) fetchStatusAttachments(ctx context.Context, tsport transport.Transport, existing, status *gtsmodel.Status) error {
+func (d *Dereferencer) FetchStatusAttachments(ctx context.Context, tsport transport.Transport, existing, status *gtsmodel.Status) error {
 	// Allocate new slice to take the yet-to-be fetched attachment IDs.
 	status.AttachmentIDs = make([]string, len(status.Attachments))
 

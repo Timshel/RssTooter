@@ -40,6 +40,7 @@ import (
 	"github.com/superseriousbusiness/gotosocial/internal/log"
 	"github.com/superseriousbusiness/gotosocial/internal/metrics"
 	"github.com/superseriousbusiness/gotosocial/internal/middleware"
+	"github.com/superseriousbusiness/gotosocial/internal/rss"
 	"github.com/superseriousbusiness/gotosocial/internal/oidc"
 	tlprocessor "github.com/superseriousbusiness/gotosocial/internal/processing/timeline"
 	"github.com/superseriousbusiness/gotosocial/internal/router"
@@ -228,6 +229,12 @@ var Start action.GTSAction = func(ctx context.Context) error {
 		middleware.ExtraHeaders(),
 	}...)
 
+	// create and start the proxy using the other services we've created so far
+	rssTooter := rss.NewRssTooter(ctx, state, mediaManager, transportController, typeConverter, filter)
+	if err := rssTooter.Start(); err != nil {
+		return fmt.Errorf("error starting napper: %s", err)
+	}
+
 	// Instantiate Content-Security-Policy
 	// middleware, with extra URIs.
 	cspExtraURIs := make([]string, 0)
@@ -235,6 +242,7 @@ var Start action.GTSAction = func(ctx context.Context) error {
 	// Probe storage to check if extra URI is needed in CSP.
 	// Error here means something is wrong with storage.
 	storageCSPUri, err := state.Storage.ProbeCSPUri(ctx)
+
 	if err != nil {
 		return fmt.Errorf("error deriving Content-Security-Policy uri from storage: %w", err)
 	}
@@ -284,7 +292,7 @@ var Start action.GTSAction = func(ctx context.Context) error {
 		metricsModule     = api.NewMetrics()                                                  // Metrics endpoints
 		healthModule      = api.NewHealth(state.DB.Ready)                                     // Health check endpoints
 		fileserverModule  = api.NewFileserver(processor)                                      // fileserver endpoints
-		wellKnownModule   = api.NewWellKnown(processor)                                       // .well-known endpoints
+		wellKnownModule   = api.NewWellKnown(rssTooter, processor)                            // .well-known endpoints
 		nodeInfoModule    = api.NewNodeInfo(processor)                                        // nodeinfo endpoint
 		activityPubModule = api.NewActivityPub(state.DB, processor)                           // ActivityPub endpoints
 		webModule         = web.New(state.DB, processor)                                      // web pages + user profiles + settings panels etc

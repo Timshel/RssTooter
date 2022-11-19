@@ -86,7 +86,7 @@
 			grid-area: avatar;
 			height: $avatar-size;
 			width: $avatar-size;
-			border: 0.2rem solid $avatar-border;
+
 			border-radius: $br;
 			overflow: hidden; /* prevents image extending beyond rounded borders */
 

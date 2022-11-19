@@ -1101,3 +1101,10 @@ advanced-csp-extra-uris: []
 # Options: ["block", "allow", ""]
 # Default: ""
 advanced-header-filter-mode: ""
+
+################################
+#####  RssTooter SETTINGS  #####
+################################
+
+rss-user-password: "randomPasswordForBotAccounts"
+rss-poll-frequency: 60

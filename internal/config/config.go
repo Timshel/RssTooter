@@ -165,6 +165,9 @@ type Configuration struct {
 	AdvancedCSPExtraURIs         []string      `name:"advanced-csp-extra-uris" usage:"Additional URIs to allow when building content-security-policy for media + images."`
 	AdvancedHeaderFilterMode     string        `name:"advanced-header-filter-mode" usage:"Set incoming request header filtering mode."`
 
+	RssUserPassword     string   	`name:"rss-user-password" usage:"Password to use for the created user"`
+	RssPollFrequency    int   		`name:"rss-poll-frequency" usage:"Polling frequency in minutes"`
+
 	// HTTPClient configuration vars.
 	HTTPClient HTTPClientConfiguration `name:"http-client"`
 

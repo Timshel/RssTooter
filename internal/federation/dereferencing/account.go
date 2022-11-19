@@ -731,7 +731,7 @@ func (d *Dereferencer) enrichAccount(
 	latestAcc.FetchedAt = time.Now()
 
 	// Ensure the account's avatar media is populated, passing in existing to check for changes.
-	if err := d.fetchRemoteAccountAvatar(ctx, tsport, account, latestAcc); err != nil {
+	if err := d.FetchRemoteAccountAvatar(ctx, tsport, account, latestAcc); err != nil {
 		log.Errorf(ctx, "error fetching remote avatar for account %s: %v", uri, err)
 	}
 
@@ -779,7 +779,7 @@ func (d *Dereferencer) enrichAccount(
 	return latestAcc, apubAcc, nil
 }
 
-func (d *Dereferencer) fetchRemoteAccountAvatar(
+func (d *Dereferencer) FetchRemoteAccountAvatar(
 	ctx context.Context,
 	tsport transport.Transport,
 	existingAcc *gtsmodel.Account,

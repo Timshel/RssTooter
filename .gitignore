@@ -1,5 +1,7 @@
-# exclude the compiled binary
+# exclude the compiled binary and config
 /gotosocial
+/config.yaml
+/storage
 
 # exclude built documentation, since readthedocs will build it for us anyway
 /docs/_build

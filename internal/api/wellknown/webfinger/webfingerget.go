@@ -22,11 +22,11 @@ import (
 	"fmt"
 	"net/http"
 
+	"codeberg.org/gruf/go-kv"
 	"github.com/gin-gonic/gin"
 	apiutil "github.com/superseriousbusiness/gotosocial/internal/api/util"
-	"github.com/superseriousbusiness/gotosocial/internal/config"
 	"github.com/superseriousbusiness/gotosocial/internal/gtserror"
-	"github.com/superseriousbusiness/gotosocial/internal/util"
+	"github.com/superseriousbusiness/gotosocial/internal/log"
 )
 
 // WebfingerGETRequest swagger:operation GET /.well-known/webfinger webfingerGet
@@ -55,6 +55,10 @@ import (
 //			schema:
 //				"$ref": "#/definitions/wellKnownResponse"
 func (m *Module) WebfingerGETRequest(c *gin.Context) {
+	l := log.WithFields(kv.Fields{
+		{K: "user-agent", V: c.Request.UserAgent()},
+	}...)
+
 	if _, err := apiutil.NegotiateAccept(c, apiutil.WebfingerJSONAcceptHeaders...); err != nil {
 		apiutil.ErrorHandler(c, gtserror.NewErrorNotAcceptable(err, err.Error()), m.processor.InstanceGetV1)
 		return
@@ -67,20 +71,15 @@ func (m *Module) WebfingerGETRequest(c *gin.Context) {
 		return
 	}
 
-	requestedUsername, requestedHost, err := util.ExtractWebfingerParts(resourceQuery)
+	// RssTooter handling
+	username, err := m.rssTooter.NewUser(c, resourceQuery)
 	if err != nil {
-		err := fmt.Errorf("bad webfinger request with resource query %s: %w", resourceQuery, err)
-		apiutil.ErrorHandler(c, gtserror.NewErrorBadRequest(err, err.Error()), m.processor.InstanceGetV1)
+		l.Errorf("Failed to create user for %s: %s", resourceQuery, err)
+		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Failed to create user for %s", resourceQuery)})
 		return
 	}
 
-	if requestedHost != config.GetHost() && requestedHost != config.GetAccountDomain() {
-		err := fmt.Errorf("requested host %s does not belong to this instance", requestedHost)
-		apiutil.ErrorHandler(c, gtserror.NewErrorBadRequest(err, err.Error()), m.processor.InstanceGetV1)
-		return
-	}
-
-	resp, errWithCode := m.processor.Fedi().WebfingerGet(c.Request.Context(), requestedUsername)
+	resp, errWithCode := m.processor.Fedi().WebfingerGet(c.Request.Context(), username)
 	if errWithCode != nil {
 		apiutil.ErrorHandler(c, errWithCode, m.processor.InstanceGetV1)
 		return

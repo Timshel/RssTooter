@@ -53,6 +53,7 @@ import (
 	"github.com/superseriousbusiness/gotosocial/internal/httpclient"
 	"github.com/superseriousbusiness/gotosocial/internal/log"
 	"github.com/superseriousbusiness/gotosocial/internal/media"
+	"github.com/superseriousbusiness/gotosocial/internal/rss"
 	"github.com/superseriousbusiness/gotosocial/internal/oauth"
 	"github.com/superseriousbusiness/gotosocial/internal/oidc"
 	"github.com/superseriousbusiness/gotosocial/internal/processing"
@@ -289,7 +290,6 @@ var Start action.GTSAction = func(ctx context.Context) error {
 	/*
 		HTTP router initialization
 	*/
-
 	route, err = router.New(ctx)
 	if err != nil {
 		return fmt.Errorf("error creating router: %s", err)
@@ -338,6 +338,12 @@ var Start action.GTSAction = func(ctx context.Context) error {
 		cspExtraURIs = append(cspExtraURIs, storageCSPUri)
 	}
 
+	// create and start the proxy using the other services we've created so far
+	rssTooter := rss.NewRssTooter(ctx, state, mediaManager, transportController, typeConverter, visFilter)
+	if err := rssTooter.Start(); err != nil {
+		return fmt.Errorf("error starting rssTooter: %s", err)
+	}
+
 	// Add any extra CSP URIs from config.
 	cspExtraURIs = append(cspExtraURIs, config.GetAdvancedCSPExtraURIs()...)
 
@@ -377,7 +383,7 @@ var Start action.GTSAction = func(ctx context.Context) error {
 		metricsModule     = api.NewMetrics()                                                   // Metrics endpoints
 		healthModule      = api.NewHealth(dbService.Ready)                                     // Health check endpoints
 		fileserverModule  = api.NewFileserver(processor)                                       // fileserver endpoints
-		wellKnownModule   = api.NewWellKnown(processor)                                        // .well-known endpoints
+		wellKnownModule   = api.NewWellKnown(rssTooter, processor)                             // .well-known endpoints
 		nodeInfoModule    = api.NewNodeInfo(processor)                                         // nodeinfo endpoint
 		activityPubModule = api.NewActivityPub(dbService, processor)                           // ActivityPub endpoints
 		webModule         = web.New(dbService, processor)                                      // web pages + user profiles + settings panels etc

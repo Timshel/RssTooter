@@ -21,6 +21,7 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	"github.com/superseriousbusiness/gotosocial/internal/rss"
 	"github.com/superseriousbusiness/gotosocial/internal/processing"
 )
 
@@ -31,11 +32,13 @@ const (
 )
 
 type Module struct {
-	processor *processing.Processor
+	rssTooter 		rss.RssTooter
+	processor 	*processing.Processor
 }
 
-func New(processor *processing.Processor) *Module {
+func New(rssTooter rss.RssTooter, processor *processing.Processor) *Module {
 	return &Module{
+		rssTooter:    rssTooter,
 		processor: processor,
 	}
 }

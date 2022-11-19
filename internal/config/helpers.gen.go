@@ -4074,3 +4074,53 @@ func GetRequestIDHeader() string { return global.GetRequestIDHeader() }
 
 // SetRequestIDHeader safely sets the value for global configuration 'RequestIDHeader' field
 func SetRequestIDHeader(v string) { global.SetRequestIDHeader(v) }
+
+// GetRssUserPassword safely fetches the Configuration value for state's 'RssUserPassword' field
+func (st *ConfigState) GetRssUserPassword() (v string) {
+	st.mutex.Lock()
+	v = st.config.RssUserPassword
+	st.mutex.Unlock()
+	return
+}
+
+// SetRssUserPassword safely sets the Configuration value for state's 'RssUserPassword' field
+func (st *ConfigState) SetRssUserPassword(v string) {
+	st.mutex.Lock()
+	defer st.mutex.Unlock()
+	st.config.RssUserPassword = v
+	st.reloadToViper()
+}
+
+// RssUserPasswordFlag returns the flag name for the 'RssUserPassword' field
+func RssUserPasswordFlag() string { return "napp-user-password" }
+
+// GetRssUserPassword safely fetches the value for global configuration 'RssUserPassword' field
+func GetRssUserPassword() string { return global.GetRssUserPassword() }
+
+// SetRssUserPassword safely sets the value for global configuration 'RssUserPassword' field
+func SetRssUserPassword(v string) { global.SetRssUserPassword(v) }
+
+// GetRssPollFrequency safely fetches the Configuration value for state's 'RssPollFrequency' field
+func (st *ConfigState) GetRssPollFrequency() (v int) {
+	st.mutex.Lock()
+	v = st.config.RssPollFrequency
+	st.mutex.Unlock()
+	return
+}
+
+// SetRssPollFrequency safely sets the Configuration value for state's 'RssPollFrequency' field
+func (st *ConfigState) SetRssPollFrequency(v int) {
+	st.mutex.Lock()
+	defer st.mutex.Unlock()
+	st.config.RssPollFrequency = v
+	st.reloadToViper()
+}
+
+// RssPollFrequencyFlag returns the flag name for the 'RssPollFrequency' field
+func RssPollFrequencyFlag() string { return "napp-poll-frequency" }
+
+// GetRssPollFrequency safely fetches the value for global configuration 'RssPollFrequency' field
+func GetRssPollFrequency() int { return global.GetRssPollFrequency() }
+
+// SetRssPollFrequency safely sets the value for global configuration 'RssPollFrequency' field
+func SetRssPollFrequency(v int) { global.SetRssPollFrequency(v) }
