@@ -30,11 +30,20 @@ func (n *rssTooter) PutStatus(ctx context.Context, toCreate *ToCreate) error {
 
 	var attachments []*gtsmodel.MediaAttachment
 	if toCreate.Item.Image != nil {
+		l.Infof("Image URL: %s", toCreate.Item.Image.URL)
 		attachments = append(attachments, &gtsmodel.MediaAttachment{ RemoteURL: toCreate.Item.Image.URL, })
 	}
 
 	accountURIs := uris.GenerateURIsForAccount(toCreate.Account.Username)
 	statusId := id.NewULID()
+
+	var text = ""
+	if len(toCreate.Item.Description) > 0 {
+		text = toCreate.Item.Description
+	} else {
+		text = toCreate.Item.Content
+	}
+	content := fmt.Sprintf(`<p><a href="%s">%s</a></p><p>%s</p>`, toCreate.Item.Link, toCreate.Item.Title, text)
 
 	newStatus := &gtsmodel.Status{
 		ID:                       statusId,
@@ -48,8 +57,8 @@ func (n *rssTooter) PutStatus(ctx context.Context, toCreate *ToCreate) error {
 		AccountID:                toCreate.Account.ID,
 		AccountURI:               toCreate.Account.URI,
 		ActivityStreamsType:      ap.ObjectNote,
-		Content:  				  fmt.Sprintf("<p>%s</p>", toCreate.Item.Content),
-		Text:                     toCreate.Item.Content,
+		Content:  				  content,
+		Text:                     toCreate.Item.Description,
 		Visibility: 			  gtsmodel.VisibilityPublic,
 		Sensitive:                &[]bool{false}[0],
 		Federated: 				  &[]bool{true}[0],
@@ -102,3 +111,4 @@ func (p *rssTooter) processThreadID(ctx context.Context, status *gtsmodel.Status
 
 	return nil
 }
+
