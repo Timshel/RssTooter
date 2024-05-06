@@ -3,9 +3,11 @@ package rss
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"codeberg.org/gruf/go-kv"
+	"github.com/antchfx/htmlquery"
 	"github.com/superseriousbusiness/gotosocial/internal/ap"
 	"github.com/superseriousbusiness/gotosocial/internal/gtserror"
 	"github.com/superseriousbusiness/gotosocial/internal/gtsmodel"
@@ -15,6 +17,29 @@ import (
 	"github.com/superseriousbusiness/gotosocial/internal/uris"
 	"github.com/superseriousbusiness/gotosocial/internal/util"
 )
+
+func createMediaAttachement(ctx context.Context, text string) []*gtsmodel.MediaAttachment {
+	var attachments []*gtsmodel.MediaAttachment
+
+	doc, err := htmlquery.Parse(strings.NewReader(text))
+	if err == nil {
+		for _, imgNode := range htmlquery.Find(doc, "//img") {
+			alt := htmlquery.SelectAttr(imgNode, "alt")
+			if len(alt) == 0 {
+				alt = htmlquery.SelectAttr(imgNode, "title")
+			}
+			attachments = append(attachments, &gtsmodel.MediaAttachment{
+				RemoteURL: htmlquery.SelectAttr(imgNode, "src"),
+				Description: alt,
+			})
+		}
+	}
+
+	log.Infof(ctx, "Attachments: ", attachments)
+
+
+	return attachments
+}
 
 func (n *rssTooter) PutStatus(ctx context.Context, toCreate *ToCreate) error {
 	l := log.WithFields(kv.Fields{
@@ -28,12 +53,6 @@ func (n *rssTooter) PutStatus(ctx context.Context, toCreate *ToCreate) error {
 		return gtserror.Newf("couldn't create transport: %w", err)
 	}
 
-	var attachments []*gtsmodel.MediaAttachment
-	if toCreate.Item.Image != nil {
-		l.Infof("Image URL: %s", toCreate.Item.Image.URL)
-		attachments = append(attachments, &gtsmodel.MediaAttachment{ RemoteURL: toCreate.Item.Image.URL, })
-	}
-
 	accountURIs := uris.GenerateURIsForAccount(toCreate.Account.Username)
 	statusId := id.NewULID()
 
@@ -43,6 +62,8 @@ func (n *rssTooter) PutStatus(ctx context.Context, toCreate *ToCreate) error {
 	} else {
 		text = toCreate.Item.Content
 	}
+
+	attachments := createMediaAttachement(ctx, text)
 	content := fmt.Sprintf(`<p><a href="%s">%s</a></p><p>%s</p>`, toCreate.Item.Link, toCreate.Item.Title, text)
 
 	newStatus := &gtsmodel.Status{
