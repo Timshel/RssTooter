@@ -22,40 +22,62 @@
     <h3 id="what-is-this">What is this?</h3>
     <div class="about-section-contents">
         <p>
-            The web page you're reading right now is served by an instance of GoToSocial,
-            a federated, distributed, open-source microblogging software which connects
-            to other instances across a network known as the "fediverse".
+            This a fork of GoToSocial to allow to function as a proxy for Atom and RSS feeds.
         </p>
-        <h4 id="what-is-an-instance">What is an "instance"?</h4>
+        <h4>How to add/follow a feed</h4>
         <p>
-            "Instance" is a term commonly used for one node in the fediverse. Each instance
-            has its own web address, user(s), culture, rules, and settings. Instances exchange
-            data by "talking" to each other over the internet using a protocol called
-            <a href="https://www.w3.org/TR/activitypub" rel="nofollow noreferrer noopener" target="_blank">ActivityPub (opens in a new tab)</a>.
+            Since Mastodon support a limited character range it's not possible to directly pass the url.
+
+            The idea is to call the webfinger directly using <b>curl</b> for example, the endpoint will return a username that can then be followed in mastodon.
+
+            The winfinger will:
+            <ul>
+                <li>Remove the `@server_host` if present </li>
+                <li>Check if the lefovers are an existing account name.</li>
+                <li>Add `https` protocol if needed and call the resulting url to check if it's a Feed (`Atom` or `Rss`).</li>
+                <li>If not load the page HTML and search for:
+                    <ul>
+                        <li>A `link` element in the header with `type="application/atom+xml"`</li>
+                        <li>A `link` element in the header with `type="application/rss+xml"`</li>
+                    </ul>
+                </li>
+            </ul>
+
+            Ex:
+
+            <pre>
+                > curl 'http://127.0.0.1:8080/.well-known/webfinger?resource=xkcd.com'
+                {
+                    "subject": "acct:xkcd.com@127.0.0.1:8080",
+                    "aliases":
+                    [
+                        "http://127.0.0.1:8080/users/xkcd.com",
+                        "https://xkcd.com/atom.xml"
+                    ],
+                    ...
+                }
+                > curl 'http://127.0.0.1:8080/.well-known/webfinger?resource=codeberg.org/forgejo/forgejo/releases.rss'
+                {
+                    "subject": "acct:codeberg.org.14499953154663570662@127.0.0.1:8080",
+                    "aliases":
+                    [
+                        "http://127.0.0.1:8080/users/codeberg.org.14499953154663570662",
+                        "https://codeberg.org/forgejo/forgejo/releases.rss"
+                    ],
+                    ...
+                }
+                > curl 'http://127.0.0.1:8080/.well-known/webfinger?resource=@codeberg.org.14499953154663570662@127.0.0.1:8080'
+                {
+                    "subject": "acct:codeberg.org.14499953154663570662@127.0.0.1:8080",
+                    ...
+                }
+                > curl 'http://127.0.0.1:8080/.well-known/webfinger?resource=codeberg.org.14499953154663570662'
+                {
+                    "subject": "acct:codeberg.org.14499953154663570662@127.0.0.1:8080",
+                    ...
+                }
+            </pre>
         </p>
-        <p>
-            Each instance can, in theory, talk to each other instance, allowing people to talk
-            to one another across a decentralized network that has no single authority in charge.
-        </p>
-        <p>
-            There are thousands of fediverse instances, connecting millions of people together.
-        </p>
-        <h4 id="how-do-i-join-the-fediverse">How do I join the fediverse?</h4>
-        <p>
-            You can join the fediverse by running your own instance of an ActivityPub software,
-            or by finding an existing instance that aligns with your values and expectations,
-            and registering an account.
-        </p>
-        <p>
-            To help you find an instance that suits you, you can try one of the following tools:
-        </p>
-        <ul>
-            <li><a href="https://fediverse.observer" rel="nofollow noreferrer noopener" target="_blank">Fediverse Observer (opens in a new tab)</a></li>
-            <li><a href="https://fedidb.org/network" rel="nofollow noreferrer noopener" target="_blank">FediDB (opens in a new tab)</a></li>
-        </ul>
-        {{- if .instance.Registrations }}
-        <p>Or, just <a href="signup">register for an account on this instance</a>!</p>
-        {{- end }}
     </div>
 </section>
 {{- end }}
