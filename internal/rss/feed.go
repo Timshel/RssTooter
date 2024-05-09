@@ -31,7 +31,7 @@ type rssFeed struct {
 }
 
 func NewRssFeed(state *state.State, ctx context.Context, resource string) (string, *rssFeed, error) {
-   hostRg := regexp.MustCompile(fmt.Sprintf("^@|@%s?$", config.GetHost())) // GetHost will return "" outside
+   hostRg := regexp.MustCompile(fmt.Sprintf("^@|^acct:|@%s?$", config.GetHost())) // GetHost will return "" outside
    cleaned := hostRg.ReplaceAllString(resource, ``)
 
    if !strings.HasPrefix(cleaned, "http") {
