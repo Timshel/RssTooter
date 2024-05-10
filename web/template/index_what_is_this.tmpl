@@ -32,7 +32,7 @@
 
             The winfinger will:
             <ul>
-                <li>Remove the `@server_host` if present </li>
+                <li>Remove the `@{{ .instance.Title }}` if present </li>
                 <li>Check if the lefovers are an existing account name.</li>
                 <li>Add `https` protocol if needed and call the resulting url to check if it's a Feed (`Atom` or `Rss`).</li>
                 <li>If not load the page HTML and search for:
@@ -46,34 +46,34 @@
             Ex:
 
             <pre>
-                > curl 'http://127.0.0.1:8080/.well-known/webfinger?resource=xkcd.com'
+                > curl 'https://{{ .instance.Title }}/.well-known/webfinger?resource=xkcd.com'
                 {
-                    "subject": "acct:xkcd.com@127.0.0.1:8080",
+                    "subject": "acct:xkcd.com@{{ .instance.Title }}",
                     "aliases":
                     [
-                        "http://127.0.0.1:8080/users/xkcd.com",
+                        "https://{{ .instance.Title }}/users/xkcd.com",
                         "https://xkcd.com/atom.xml"
                     ],
                     ...
                 }
-                > curl 'http://127.0.0.1:8080/.well-known/webfinger?resource=codeberg.org/forgejo/forgejo/releases.rss'
+                > curl 'https://{{ .instance.Title }}/.well-known/webfinger?resource=codeberg.org/forgejo/forgejo/releases.rss'
                 {
-                    "subject": "acct:codeberg.org.14499953154663570662@127.0.0.1:8080",
+                    "subject": "acct:codeberg.org.14499953154663570662@{{ .instance.Title }}",
                     "aliases":
                     [
-                        "http://127.0.0.1:8080/users/codeberg.org.14499953154663570662",
+                        "https://{{ .instance.Title }}/users/codeberg.org.14499953154663570662",
                         "https://codeberg.org/forgejo/forgejo/releases.rss"
                     ],
                     ...
                 }
-                > curl 'http://127.0.0.1:8080/.well-known/webfinger?resource=@codeberg.org.14499953154663570662@127.0.0.1:8080'
+                > curl 'https://{{ .instance.Title }}/.well-known/webfinger?resource=@codeberg.org.14499953154663570662@{{ .instance.Title }}'
                 {
-                    "subject": "acct:codeberg.org.14499953154663570662@127.0.0.1:8080",
+                    "subject": "acct:codeberg.org.14499953154663570662@{{ .instance.Title }}",
                     ...
                 }
-                > curl 'http://127.0.0.1:8080/.well-known/webfinger?resource=codeberg.org.14499953154663570662'
+                > curl 'https://{{ .instance.Title }}/.well-known/webfinger?resource=codeberg.org.14499953154663570662'
                 {
-                    "subject": "acct:codeberg.org.14499953154663570662@127.0.0.1:8080",
+                    "subject": "acct:codeberg.org.14499953154663570662@{{ .instance.Title }}",
                     ...
                 }
             </pre>
