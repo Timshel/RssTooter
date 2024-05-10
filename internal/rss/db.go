@@ -24,6 +24,7 @@ func (n *rssTooter) GetAccountsToPoll(ctx context.Context) ([]*ToPoll, error) {
 		ColumnExpr("accounts.url AS url").
 		ColumnExpr("max(statuses.created_at) AS last_tweet").
 		TableExpr("accounts").
+		Join("INNER JOIN follows on target_account_id = accounts.id").
 		Join("LEFT JOIN statuses on accounts.id = statuses.account_id").
 		Where("actor_type = 'Person'").
 		Where("bot = true").
