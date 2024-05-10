@@ -1102,9 +1102,9 @@ advanced-csp-extra-uris: []
 # Default: ""
 advanced-header-filter-mode: ""
 
-#############################
-#####  NAPPER SETTINGS  #####
-#############################
+################################
+#####  RssTooter SETTINGS  #####
+################################
 
-nap-nitter-host: "https://"
-nap-user-password: "randomPasswordForBotAccounts"
+rss-user-password: "randomPasswordForBotAccounts"
+rss-poll-frequency: 60
