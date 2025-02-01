@@ -147,10 +147,9 @@ func (m *Module) EmojiPATCHHandler(c *gin.Context) {
 		return
 	}
 
-	emojiID := c.Param(IDKey)
-	if emojiID == "" {
-		err := errors.New("no emoji id specified")
-		apiutil.ErrorHandler(c, gtserror.NewErrorBadRequest(err, err.Error()), m.processor.InstanceGetV1)
+	emojiID, errWithCode := apiutil.ParseID(c.Param(apiutil.IDKey))
+	if errWithCode != nil {
+		apiutil.ErrorHandler(c, errWithCode, m.processor.InstanceGetV1)
 		return
 	}
 
@@ -209,8 +208,8 @@ func validateUpdateEmoji(form *apimodel.EmojiUpdateRequest) error {
 		}
 
 		if hasImage {
-			maxSize := config.GetMediaEmojiLocalMaxSize()
-			if form.Image.Size > int64(maxSize) {
+			maxSize := int64(config.GetMediaEmojiLocalMaxSize()) // #nosec G115 -- Already validated.
+			if form.Image.Size > maxSize {
 				return fmt.Errorf("emoji image too large: image is %dKB but size limit for custom emojis is %dKB", form.Image.Size/1024, maxSize/1024)
 			}
 		}

@@ -30,7 +30,8 @@
 			line-height: 2rem;
 		}
 
-		& > img {
+		img,
+		picture {
 			align-self: center;
 			max-height: 6rem;
 		}
@@ -58,6 +59,20 @@
 		box-shadow: $boxshadow;
 		border: $boxshadow-border;
 		border-radius: $br;
+	}
+}
+
+.what-is-this .about-section-contents .activitypub-logo-wrapper {
+	display: flex;
+	flex-direction: column;
+	max-width: fit-content;
+	gap: 0.5rem;
+
+	.activitypub-logo {
+		background: $fg;
+		box-shadow: $boxshadow;
+		border-radius: $br;	
+		max-width: 100%;
 	}
 }
 

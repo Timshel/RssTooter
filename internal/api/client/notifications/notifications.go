@@ -34,7 +34,9 @@ const (
 	BasePathWithID    = BasePath + "/:" + IDKey
 	BasePathWithClear = BasePath + "/clear"
 
-	// ExcludeTypes is an array specifying notification types to exclude
+	// TypesKey names an array param specifying notification types to include.
+	TypesKey = "types[]"
+	// ExcludeTypesKey names an array param specifying notification types to exclude.
 	ExcludeTypesKey = "exclude_types[]"
 	MaxIDKey        = "max_id"
 	LimitKey        = "limit"

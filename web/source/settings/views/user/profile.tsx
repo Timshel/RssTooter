@@ -17,14 +17,13 @@
 	along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-import React from "react";
+import React, { useMemo } from "react";
 
 import {
 	useTextInput,
 	useFileInput,
 	useBoolInput,
 	useFieldArrayInput,
-	useRadioInput
 } from "../../lib/form";
 
 import useFormSubmit from "../../lib/form/submit";
@@ -35,17 +34,18 @@ import {
 	TextArea,
 	FileInput,
 	Checkbox,
-	RadioGroup
+	Select
 } from "../../components/form/inputs";
 
 import FormWithData from "../../lib/form/form-with-data";
-import FakeProfile from "../../components/fake-profile";
+import FakeProfile from "../../components/profile";
 import MutationButton from "../../components/form/mutation-button";
 
 import { useAccountThemesQuery } from "../../lib/query/user";
 import { useUpdateCredentialsMutation } from "../../lib/query/user";
 import { useVerifyCredentialsQuery } from "../../lib/query/oauth";
 import { useInstanceV1Query } from "../../lib/query/gts-api";
+import { Account } from "../../lib/types/account";
 
 export default function UserProfile() {
 	return (
@@ -56,7 +56,11 @@ export default function UserProfile() {
 	);
 }
 
-function UserProfileForm({ data: profile }) {
+interface UserProfileFormProps {
+	data: Account;
+}
+
+function UserProfileForm({ data: profile }: UserProfileFormProps) {
 	/*
 		User profile update form keys
 		- bool bot
@@ -81,19 +85,34 @@ function UserProfileForm({ data: profile }) {
 	
 	// Parse out available theme options into nice format.
 	const { data: themes } = useAccountThemesQuery();
-	let themeOptions = { "": "Default" };
-	themes?.forEach((theme) => {
-		let key = theme.file_name;
-		let value = theme.title;
-		if (theme.description) {
-			value += " - " + theme.description;
-		}
-		themeOptions[key] = value;
-	});
+	const themeOptions = useMemo(() => {
+		let themeOptions = [
+			<option key="" value="">
+				Default
+			</option>
+		];
+
+		themes?.forEach((theme) => {
+			const value = theme.file_name;
+			let text = theme.title;
+			if (theme.description) {
+				text += " - " + theme.description;
+			}
+			themeOptions.push(
+				<option key={value} value={value}>
+					{text}
+				</option>
+			);
+		});
+
+		return themeOptions;
+	}, [themes]);
 
 	const form = {
 		avatar: useFileInput("avatar", { withPreview: true }),
+		avatarDescription: useTextInput("avatar_description", { source: profile }),
 		header: useFileInput("header", { withPreview: true }),
+		headerDescription: useTextInput("header_description", { source: profile }),
 		displayName: useTextInput("display_name", { source: profile }),
 		note: useTextInput("note", { source: profile, valueSelector: (p) => p.source?.note }),
 		bot: useBoolInput("bot", { source: profile }),
@@ -101,15 +120,13 @@ function UserProfileForm({ data: profile }) {
 		discoverable: useBoolInput("discoverable", { source: profile}),
 		enableRSS: useBoolInput("enable_rss", { source: profile }),
 		hideCollections: useBoolInput("hide_collections", { source: profile }),
+		webVisibility: useTextInput("web_visibility", { source: profile, valueSelector: (p) => p.source?.web_visibility }),
 		fields: useFieldArrayInput("fields_attributes", {
 			defaultValue: profile?.source?.fields,
 			length: instanceConfig.maxPinnedFields
 		}),
 		customCSS: useTextInput("custom_css", { source: profile, nosubmit: !instanceConfig.allowCustomCSS }),
-		theme: useRadioInput("theme", {
-			source: profile,
-			options: themeOptions,
-		}),
+		theme: useTextInput("theme", { source: profile }),
 	};
 
 	const [submitForm, result] = useFormSubmit(form, useUpdateCredentialsMutation(), {
@@ -120,6 +137,9 @@ function UserProfileForm({ data: profile }) {
 		}
 	});
 
+	const noAvatarSet = !profile.avatar_media_id;
+	const noHeaderSet = !profile.header_media_id;
+
 	return (
 		<form className="user-profile" onSubmit={submitForm}>
 			<h1>Profile</h1>
@@ -128,25 +148,42 @@ function UserProfileForm({ data: profile }) {
 					avatar={form.avatar.previewValue ?? profile.avatar}
 					header={form.header.previewValue ?? profile.header}
 					display_name={form.displayName.value ?? profile.username}
+					bot={profile.bot}
 					username={profile.username}
 					role={profile.role}
 				/>
-				<div className="files">
-					<div>
-						<FileInput
-							label="Header"
-							field={form.header}
-							accept="image/*"
-						/>
-					</div>
-					<div>
-						<FileInput
-							label="Avatar"
-							field={form.avatar}
-							accept="image/*"
-						/>
-					</div>
-				</div>
+
+				<fieldset className="file-input-with-image-description">
+					<legend>Header</legend>
+					<FileInput
+						label="Upload file"
+						field={form.header}
+						accept="image/png, image/jpeg, image/webp, image/gif"
+					/>
+					<TextInput
+						field={form.headerDescription}
+						label="Image description; only settable if not using default header"
+						placeholder="A green field with pink flowers."
+						autoCapitalize="sentences"
+						disabled={noHeaderSet && !form.header.value}
+					/>
+				</fieldset>
+				
+				<fieldset className="file-input-with-image-description">
+					<legend>Avatar</legend>
+					<FileInput
+						label="Upload file (1:1 images look best)"
+						field={form.avatar}
+						accept="image/png, image/jpeg, image/webp, image/gif"
+					/>
+					<TextInput
+						field={form.avatarDescription}
+						label="Image description; only settable if not using default avatar"
+						placeholder="A cute drawing of a smiling sloth."
+						autoCapitalize="sentences"
+						disabled={noAvatarSet && !form.avatar.value}
+					/>
+				</fieldset>
 
 				<div className="theme">
 					<div>
@@ -154,9 +191,10 @@ function UserProfileForm({ data: profile }) {
 						<br/>
 						<span>After choosing theme and saving, <a href={profile.url} target="_blank">open your profile</a> and refresh to see changes.</span>
 					</div>
-					<RadioGroup
+					<Select
 						aria-labelledby="theme-label"
 						field={form.theme}
+						options={<>{themeOptions}</>}
 					/>
 				</div>
 			</div>
@@ -172,21 +210,30 @@ function UserProfileForm({ data: profile }) {
 					Learn more about these settings (opens in a new tab)
 				</a>
 			</div>
+			<Checkbox
+				field={form.bot}
+				label="Mark as bot account; this indicates to other users that this is an automated account"
+			/>
 			<TextInput
 				field={form.displayName}
 				label="Display name"
-				placeholder="A GoToSocial user"
+				placeholder="A GoToSocial User"
+				autoCapitalize="words"
+				spellCheck="false"
 			/>
 			<TextArea
 				field={form.note}
 				label="Bio"
 				placeholder="Just trying out GoToSocial, my pronouns are they/them and I like sloths."
+				autoCapitalize="sentences"
 				rows={8}
 			/>
-			<b>Profile fields</b>
-			<ProfileFields
-				field={form.fields}
-			/>
+			<fieldset>
+				<legend>Profile fields</legend>
+				<ProfileFields
+					field={form.fields}
+				/>
+			</fieldset>
 
 			<div className="form-section-docs">
 				<h3>Visibility and privacy</h3>
@@ -199,21 +246,32 @@ function UserProfileForm({ data: profile }) {
 					Learn more about these settings (opens in a new tab)
 				</a>
 			</div>
+			<Select
+				field={form.webVisibility}
+				label="Visibility level of posts to show on your profile, and in your RSS feed (if enabled)."
+				options={
+					<>
+						<option value="public">Show Public posts only (the GoToSocial default)</option>
+						<option value="unlisted">Show Public and Unlisted posts (the Mastodon default)</option>
+						<option value="none">Show no posts</option>
+					</>
+				}
+			/>
 			<Checkbox
 				field={form.locked}
-				label="Manually approve follow requests"
+				label="Manually approve follow requests."
 			/>
 			<Checkbox
 				field={form.discoverable}
-				label="Mark account as discoverable by search engines and directories"
+				label="Mark account as discoverable by search engines and directories."
 			/>
 			<Checkbox
 				field={form.enableRSS}
-				label="Enable RSS feed of Public posts"
+				label="Enable RSS feed of posts."
 			/>
 			<Checkbox
 				field={form.hideCollections}
-				label="Hide who you follow / are followed by"
+				label="Hide who you follow / are followed by."
 			/>
 
 			<div className="form-section-docs">
@@ -233,6 +291,8 @@ function UserProfileForm({ data: profile }) {
 				className="monospace"
 				rows={8}
 				disabled={!instanceConfig.allowCustomCSS}
+				autoCapitalize="none"
+				spellCheck="false"
 			/>
 			<MutationButton
 				disabled={false}
@@ -270,10 +330,14 @@ function Field({ index, data }) {
 			<TextInput
 				field={form.name}
 				placeholder="Name"
+				autoCapitalize="none"
+				spellCheck="false"
 			/>
 			<TextInput
 				field={form.value}
 				placeholder="Value"
+				autoCapitalize="none"
+				spellCheck="false"
 			/>
 		</div>
 	);

@@ -46,6 +46,8 @@ type Status struct {
 	// Visibility of this status.
 	// example: unlisted
 	Visibility Visibility `json:"visibility"`
+	// Set to "true" if status is not federated, ie., a "local only" status; omitted from response otherwise.
+	LocalOnly bool `json:"local_only,omitempty"`
 	// Primary language of this status (ISO 639 Part 1 two-letter language code).
 	// Will be null if language is not known.
 	// example: en
@@ -102,28 +104,52 @@ type Status struct {
 	Text string `json:"text,omitempty"`
 	// A list of filters that matched this status and why they matched, if there are any such filters.
 	Filtered []FilterResult `json:"filtered,omitempty"`
+	// The interaction policy for this status, as set by the status author.
+	InteractionPolicy InteractionPolicy `json:"interaction_policy"`
+}
 
-	// Additional fields not exposed via JSON
-	// (used only internally for templating etc).
+// WebStatus is like *model.Status, but contains
+// additional fields used only for HTML templating.
+//
+// swagger:ignore
+type WebStatus struct {
+	*Status
 
-	// Template-ready language tag + string, based
-	// on *status.Language. Nil for non-web statuses.
-	//
-	// swagger:ignore
-	LanguageTag *language.Language `json:"-"`
+	// Override API account with web account.
+	Account *WebAccount `json:"account"`
+
+	// Web version of media
+	// attached to this status.
+	MediaAttachments []*WebAttachment `json:"media_attachments"`
+
+	// Template-ready language tag and
+	// string, based on *status.Language.
+	LanguageTag *language.Language
 
 	// Template-ready poll options with vote shares
 	// calculated as a percentage of total votes.
-	// Nil for non-web statuses.
-	//
-	// swagger:ignore
-	WebPollOptions []WebPollOption `json:"-"`
+	PollOptions []WebPollOption
 
 	// Status is from a local account.
-	// Always false for non-web statuses.
-	//
-	// swagger:ignore
-	Local bool `json:"-"`
+	Local bool
+
+	// Level of indentation at which to
+	// display this status in the web view.
+	Indent int
+
+	// This status is the last visible status
+	// in the main thread, so everything below
+	// can be considered "replies".
+	ThreadLastMain bool
+
+	// This status is the one around which
+	// the thread context was constructed.
+	ThreadContextStatus bool
+
+	// This status is the first visibile status
+	// after the "main" thread, so it and everything
+	// below it can be considered "replies".
+	ThreadFirstReply bool
 }
 
 /*
@@ -170,29 +196,44 @@ type StatusCreateRequest struct {
 	// Text content of the status.
 	// If media_ids is provided, this becomes optional.
 	// Attaching a poll is optional while status is provided.
-	Status string `form:"status" json:"status" xml:"status"`
+	Status string `form:"status" json:"status"`
 	// Array of Attachment ids to be attached as media.
 	// If provided, status becomes optional, and poll cannot be used.
-	MediaIDs []string `form:"media_ids[]" json:"media_ids" xml:"media_ids"`
+	MediaIDs []string `form:"media_ids[]" json:"media_ids"`
 	// Poll to include with this status.
-	Poll *PollRequest `form:"poll" json:"poll" xml:"poll"`
+	Poll *PollRequest `form:"poll" json:"poll"`
 	// ID of the status being replied to, if status is a reply.
-	InReplyToID string `form:"in_reply_to_id" json:"in_reply_to_id" xml:"in_reply_to_id"`
+	InReplyToID string `form:"in_reply_to_id" json:"in_reply_to_id"`
 	// Status and attached media should be marked as sensitive.
-	Sensitive bool `form:"sensitive" json:"sensitive" xml:"sensitive"`
+	Sensitive bool `form:"sensitive" json:"sensitive"`
 	// Text to be shown as a warning or subject before the actual content.
 	// Statuses are generally collapsed behind this field.
-	SpoilerText string `form:"spoiler_text" json:"spoiler_text" xml:"spoiler_text"`
+	SpoilerText string `form:"spoiler_text" json:"spoiler_text"`
 	// Visibility of the posted status.
-	Visibility Visibility `form:"visibility" json:"visibility" xml:"visibility"`
+	Visibility Visibility `form:"visibility" json:"visibility"`
+	// Set to "true" if this status should not be federated, ie. it should be a "local only" status.
+	LocalOnly *bool `form:"local_only" json:"local_only"`
+	// Deprecated: Only used if LocalOnly is not set.
+	Federated *bool `form:"federated" json:"federated"`
 	// ISO 8601 Datetime at which to schedule a status.
 	// Providing this parameter will cause ScheduledStatus to be returned instead of Status.
 	// Must be at least 5 minutes in the future.
-	ScheduledAt string `form:"scheduled_at" json:"scheduled_at" xml:"scheduled_at"`
+	ScheduledAt string `form:"scheduled_at" json:"scheduled_at"`
 	// ISO 639 language code for this status.
-	Language string `form:"language" json:"language" xml:"language"`
+	Language string `form:"language" json:"language"`
 	// Content type to use when parsing this status.
-	ContentType StatusContentType `form:"content_type" json:"content_type" xml:"content_type"`
+	ContentType StatusContentType `form:"content_type" json:"content_type"`
+	// Interaction policy to use for this status.
+	InteractionPolicy *InteractionPolicy `form:"-" json:"interaction_policy"`
+}
+
+// Separate form for parsing interaction
+// policy on status create requests.
+//
+// swagger:ignore
+type StatusInteractionPolicyForm struct {
+	// Interaction policy to use for this status.
+	InteractionPolicy *InteractionPolicy `form:"interaction_policy" json:"-"`
 }
 
 // Visibility models the visibility of a status.
@@ -202,6 +243,8 @@ type StatusCreateRequest struct {
 type Visibility string
 
 const (
+	// VisibilityNone is visible to nobody. This is only used for the visibility of web statuses.
+	VisibilityNone Visibility = "none"
 	// VisibilityPublic is visible to everyone, and will be available via the web even for nonauthenticated users.
 	VisibilityPublic Visibility = "public"
 	// VisibilityUnlisted is visible to everyone, but only on home timelines, lists, etc.
@@ -213,30 +256,6 @@ const (
 	// VisibilityDirect is visible only to accounts tagged in the status. It is equivalent to a direct message.
 	VisibilityDirect Visibility = "direct"
 )
-
-// AdvancedStatusCreateForm wraps the mastodon-compatible status create form along with the GTS advanced
-// visibility settings.
-//
-// swagger:ignore
-type AdvancedStatusCreateForm struct {
-	StatusCreateRequest
-	AdvancedVisibilityFlagsForm
-}
-
-// AdvancedVisibilityFlagsForm allows a few more advanced flags to be set on new statuses, in addition
-// to the standard mastodon-compatible ones.
-//
-// swagger:ignore
-type AdvancedVisibilityFlagsForm struct {
-	// This status will be federated beyond the local timeline(s).
-	Federated *bool `form:"federated" json:"federated" xml:"federated"`
-	// This status can be boosted/reblogged.
-	Boostable *bool `form:"boostable" json:"boostable" xml:"boostable"`
-	// This status can be replied to.
-	Replyable *bool `form:"replyable" json:"replyable" xml:"replyable"`
-	// This status can be liked/faved.
-	Likeable *bool `form:"likeable" json:"likeable" xml:"likeable"`
-}
 
 // StatusContentType is the content type with which to parse the submitted status.
 // Can be either text/plain or text/markdown. Empty will default to text/plain.

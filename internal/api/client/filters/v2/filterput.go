@@ -19,9 +19,7 @@ package v2
 
 import (
 	"errors"
-	"fmt"
 	"net/http"
-	"strconv"
 
 	"github.com/gin-gonic/gin"
 	apimodel "github.com/superseriousbusiness/gotosocial/internal/api/model"
@@ -121,6 +119,17 @@ import (
 //
 //			Sample: 86400
 //		type: number
+//	-
+//		name: filter_action
+//		in: formData
+//		description: |-
+//			The action to be taken when a status matches this filter.
+//
+//			Sample: warn
+//		type: string
+//		enum:
+//			- warn
+//			- hide
 //
 //	security:
 //	- OAuth2 Bearer:
@@ -261,24 +270,22 @@ func validateNormalizeUpdateFilter(form *apimodel.FilterUpdateRequestV2) error {
 	}
 
 	// Normalize filter expiry if necessary.
-	// If we parsed this as JSON, expires_in
-	// may be either a float64 or a string.
-	if ei := form.ExpiresInI; ei != nil {
-		switch e := ei.(type) {
-		case float64:
-			form.ExpiresIn = util.Ptr(int(e))
-
-		case string:
-			expiresIn, err := strconv.Atoi(e)
-			if err != nil {
-				return fmt.Errorf("could not parse expires_in value %s as integer: %w", e, err)
-			}
-
-			form.ExpiresIn = &expiresIn
-
-		default:
-			return fmt.Errorf("could not parse expires_in type %T as integer", ei)
+	if form.ExpiresInI != nil {
+		// If we parsed this as JSON, expires_in
+		// may be either a float64 or a string.
+		var err error
+		form.ExpiresIn, err = apiutil.ParseDuration(
+			form.ExpiresInI,
+			"expires_in",
+		)
+		if err != nil {
+			return err
 		}
+	}
+
+	// Interpret zero as indefinite duration.
+	if form.ExpiresIn != nil && *form.ExpiresIn == 0 {
+		form.ExpiresIn = nil
 	}
 
 	// Normalize and validate updates.
@@ -289,7 +296,7 @@ func validateNormalizeUpdateFilter(form *apimodel.FilterUpdateRequestV2) error {
 			}
 		}
 
-		destroy := util.PtrValueOr(formKeyword.Destroy, false)
+		destroy := util.PtrOrValue(formKeyword.Destroy, false)
 		form.Keywords[i].Destroy = &destroy
 
 		if destroy && formKeyword.ID == nil {
@@ -305,7 +312,7 @@ func validateNormalizeUpdateFilter(form *apimodel.FilterUpdateRequestV2) error {
 			}
 		}
 
-		destroy := util.PtrValueOr(formStatus.Destroy, false)
+		destroy := util.PtrOrValue(formStatus.Destroy, false)
 		form.Statuses[i].Destroy = &destroy
 
 		switch {

@@ -44,9 +44,6 @@ func (suite *StatusTestSuite) TestGetStatusByID() {
 	suite.Nil(status.InReplyTo)
 	suite.Nil(status.InReplyToAccount)
 	suite.True(*status.Federated)
-	suite.True(*status.Boostable)
-	suite.True(*status.Replyable)
-	suite.True(*status.Likeable)
 }
 
 func (suite *StatusTestSuite) TestGetStatusesByIDs() {
@@ -73,9 +70,6 @@ func (suite *StatusTestSuite) TestGetStatusesByIDs() {
 	suite.Nil(status1.InReplyTo)
 	suite.Nil(status1.InReplyToAccount)
 	suite.True(*status1.Federated)
-	suite.True(*status1.Boostable)
-	suite.True(*status1.Replyable)
-	suite.True(*status1.Likeable)
 
 	status2 := statuses[1]
 	suite.NotNil(status2)
@@ -86,9 +80,6 @@ func (suite *StatusTestSuite) TestGetStatusesByIDs() {
 	suite.Nil(status2.InReplyTo)
 	suite.Nil(status2.InReplyToAccount)
 	suite.True(*status2.Federated)
-	suite.True(*status2.Boostable)
-	suite.False(*status2.Replyable)
-	suite.False(*status2.Likeable)
 }
 
 func (suite *StatusTestSuite) TestGetStatusByURI() {
@@ -104,9 +95,6 @@ func (suite *StatusTestSuite) TestGetStatusByURI() {
 	suite.Nil(status.InReplyTo)
 	suite.Nil(status.InReplyToAccount)
 	suite.True(*status.Federated)
-	suite.True(*status.Boostable)
-	suite.False(*status.Replyable)
-	suite.False(*status.Likeable)
 }
 
 func (suite *StatusTestSuite) TestGetStatusWithExtras() {
@@ -121,9 +109,6 @@ func (suite *StatusTestSuite) TestGetStatusWithExtras() {
 	suite.NotEmpty(status.Attachments)
 	suite.NotEmpty(status.Emojis)
 	suite.True(*status.Federated)
-	suite.True(*status.Boostable)
-	suite.True(*status.Replyable)
-	suite.True(*status.Likeable)
 }
 
 func (suite *StatusTestSuite) TestGetStatusWithMention() {
@@ -138,9 +123,6 @@ func (suite *StatusTestSuite) TestGetStatusWithMention() {
 	suite.NotEmpty(status.InReplyToID)
 	suite.NotEmpty(status.InReplyToAccountID)
 	suite.True(*status.Federated)
-	suite.True(*status.Boostable)
-	suite.True(*status.Replyable)
-	suite.True(*status.Likeable)
 }
 
 // The below test was originally used to ensure that a second
@@ -187,12 +169,7 @@ func (suite *StatusTestSuite) TestGetStatusChildren() {
 	targetStatus := suite.testStatuses["local_account_1_status_1"]
 	children, err := suite.db.GetStatusChildren(context.Background(), targetStatus.ID)
 	suite.NoError(err)
-	suite.Len(children, 2)
-	for _, c := range children {
-		suite.Equal(targetStatus.URI, c.InReplyToURI)
-		suite.Equal(targetStatus.AccountID, c.InReplyToAccountID)
-		suite.Equal(targetStatus.ID, c.InReplyToID)
-	}
+	suite.Len(children, 3)
 }
 
 func (suite *StatusTestSuite) TestDeleteStatus() {

@@ -125,19 +125,20 @@ func (suite *StatusMuteTestSuite) TestMuteUnmuteStatus() {
     "note": "\u003cp\u003ehey yo this is my profile!\u003c/p\u003e",
     "url": "http://localhost:8080/@the_mighty_zork",
     "avatar": "http://localhost:8080/fileserver/01F8MH1H7YV1Z7D2C8K2730QBF/avatar/original/01F8MH58A357CV5K7R7TJMSH6S.jpg",
-    "avatar_static": "http://localhost:8080/fileserver/01F8MH1H7YV1Z7D2C8K2730QBF/avatar/small/01F8MH58A357CV5K7R7TJMSH6S.jpg",
+    "avatar_static": "http://localhost:8080/fileserver/01F8MH1H7YV1Z7D2C8K2730QBF/avatar/small/01F8MH58A357CV5K7R7TJMSH6S.webp",
+    "avatar_description": "a green goblin looking nasty",
+    "avatar_media_id": "01F8MH58A357CV5K7R7TJMSH6S",
     "header": "http://localhost:8080/fileserver/01F8MH1H7YV1Z7D2C8K2730QBF/header/original/01PFPMWK2FF0D9WMHEJHR07C3Q.jpg",
-    "header_static": "http://localhost:8080/fileserver/01F8MH1H7YV1Z7D2C8K2730QBF/header/small/01PFPMWK2FF0D9WMHEJHR07C3Q.jpg",
+    "header_static": "http://localhost:8080/fileserver/01F8MH1H7YV1Z7D2C8K2730QBF/header/small/01PFPMWK2FF0D9WMHEJHR07C3Q.webp",
+    "header_description": "A very old-school screenshot of the original team fortress mod for quake",
+    "header_media_id": "01PFPMWK2FF0D9WMHEJHR07C3Q",
     "followers_count": 2,
     "following_count": 2,
-    "statuses_count": 7,
-    "last_status_at": "2023-12-10T09:24:00.000Z",
+    "statuses_count": 8,
+    "last_status_at": "2024-01-10",
     "emojis": [],
     "fields": [],
-    "enable_rss": true,
-    "role": {
-      "name": "user"
-    }
+    "enable_rss": true
   },
   "media_attachments": [],
   "mentions": [],
@@ -145,7 +146,30 @@ func (suite *StatusMuteTestSuite) TestMuteUnmuteStatus() {
   "emojis": [],
   "card": null,
   "poll": null,
-  "text": "hello everyone!"
+  "text": "hello everyone!",
+  "interaction_policy": {
+    "can_favourite": {
+      "always": [
+        "public",
+        "me"
+      ],
+      "with_approval": []
+    },
+    "can_reply": {
+      "always": [
+        "public",
+        "me"
+      ],
+      "with_approval": []
+    },
+    "can_reblog": {
+      "always": [
+        "public",
+        "me"
+      ],
+      "with_approval": []
+    }
+  }
 }`, muted)
 
 	// Unmute the status, ensure `muted` is `false`.
@@ -188,19 +212,20 @@ func (suite *StatusMuteTestSuite) TestMuteUnmuteStatus() {
     "note": "\u003cp\u003ehey yo this is my profile!\u003c/p\u003e",
     "url": "http://localhost:8080/@the_mighty_zork",
     "avatar": "http://localhost:8080/fileserver/01F8MH1H7YV1Z7D2C8K2730QBF/avatar/original/01F8MH58A357CV5K7R7TJMSH6S.jpg",
-    "avatar_static": "http://localhost:8080/fileserver/01F8MH1H7YV1Z7D2C8K2730QBF/avatar/small/01F8MH58A357CV5K7R7TJMSH6S.jpg",
+    "avatar_static": "http://localhost:8080/fileserver/01F8MH1H7YV1Z7D2C8K2730QBF/avatar/small/01F8MH58A357CV5K7R7TJMSH6S.webp",
+    "avatar_description": "a green goblin looking nasty",
+    "avatar_media_id": "01F8MH58A357CV5K7R7TJMSH6S",
     "header": "http://localhost:8080/fileserver/01F8MH1H7YV1Z7D2C8K2730QBF/header/original/01PFPMWK2FF0D9WMHEJHR07C3Q.jpg",
-    "header_static": "http://localhost:8080/fileserver/01F8MH1H7YV1Z7D2C8K2730QBF/header/small/01PFPMWK2FF0D9WMHEJHR07C3Q.jpg",
+    "header_static": "http://localhost:8080/fileserver/01F8MH1H7YV1Z7D2C8K2730QBF/header/small/01PFPMWK2FF0D9WMHEJHR07C3Q.webp",
+    "header_description": "A very old-school screenshot of the original team fortress mod for quake",
+    "header_media_id": "01PFPMWK2FF0D9WMHEJHR07C3Q",
     "followers_count": 2,
     "following_count": 2,
-    "statuses_count": 7,
-    "last_status_at": "2023-12-10T09:24:00.000Z",
+    "statuses_count": 8,
+    "last_status_at": "2024-01-10",
     "emojis": [],
     "fields": [],
-    "enable_rss": true,
-    "role": {
-      "name": "user"
-    }
+    "enable_rss": true
   },
   "media_attachments": [],
   "mentions": [],
@@ -208,7 +233,30 @@ func (suite *StatusMuteTestSuite) TestMuteUnmuteStatus() {
   "emojis": [],
   "card": null,
   "poll": null,
-  "text": "hello everyone!"
+  "text": "hello everyone!",
+  "interaction_policy": {
+    "can_favourite": {
+      "always": [
+        "public",
+        "me"
+      ],
+      "with_approval": []
+    },
+    "can_reply": {
+      "always": [
+        "public",
+        "me"
+      ],
+      "with_approval": []
+    },
+    "can_reblog": {
+      "always": [
+        "public",
+        "me"
+      ],
+      "with_approval": []
+    }
+  }
 }`, unmuted)
 }
 

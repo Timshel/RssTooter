@@ -19,6 +19,7 @@ package streaming
 
 import (
 	"context"
+	"net/http"
 	"slices"
 	"time"
 
@@ -33,6 +34,8 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
 )
+
+var pingMsg = []byte("ping!")
 
 // StreamGETHandler swagger:operation GET /api/v1/streaming streamGet
 //
@@ -151,15 +154,24 @@ import (
 //			description: bad request
 func (m *Module) StreamGETHandler(c *gin.Context) {
 	var (
-		account     *gtsmodel.Account
-		errWithCode gtserror.WithCode
+		token         string
+		tokenInHeader bool
+		account       *gtsmodel.Account
+		errWithCode   gtserror.WithCode
 	)
 
-	// Try query param access token.
-	token := c.Query(AccessTokenQueryKey)
-	if token == "" {
-		// Try fallback HTTP header provided token.
-		token = c.GetHeader(AccessTokenHeader)
+	if t := c.Query(AccessTokenQueryKey); t != "" {
+		// Token was provided as
+		// query param, no problem.
+		token = t
+	} else if t := c.GetHeader(AccessTokenHeader); t != "" {
+		// Token was provided in "Sec-Websocket-Protocol" header.
+		//
+		// This is hacky and not technically correct but some
+		// clients do it since Mastodon allows it, so we must
+		// also allow it to avoid breaking expectations.
+		token = t
+		tokenInHeader = true
 	}
 
 	if token != "" {
@@ -230,7 +242,16 @@ func (m *Module) StreamGETHandler(c *gin.Context) {
 	//
 	// If the upgrade fails, then Upgrade replies to the client
 	// with an HTTP error response.
-	wsConn, err := m.wsUpgrade.Upgrade(c.Writer, c.Request, nil)
+	var responseHeader http.Header
+	if tokenInHeader {
+		// Return the token in the response,
+		// else Chrome fails to connect.
+		//
+		// https://developer.mozilla.org/en-US/docs/Web/HTTP/Protocol_upgrade_mechanism#sec-websocket-protocol
+		responseHeader = http.Header{AccessTokenHeader: {token}}
+	}
+
+	wsConn, err := m.wsUpgrade.Upgrade(c.Writer, c.Request, responseHeader)
 	if err != nil {
 		l.Errorf("error upgrading websocket connection: %v", err)
 		stream.Close()
@@ -370,40 +391,57 @@ func (m *Module) writeToWSConn(
 ) {
 	for {
 		// Wrap context with timeout to send a ping.
-		pingctx, cncl := context.WithTimeout(ctx, ping)
+		pingCtx, cncl := context.WithTimeout(ctx, ping)
 
-		// Block on receipt of msg.
-		msg, ok := stream.Recv(pingctx)
+		// Block and wait for
+		// one of the following:
+		//
+		// - receipt of msg
+		// - timeout of pingCtx
+		// - stream closed.
+		msg, haveMsg := stream.Recv(pingCtx)
 
-		// Check if cancel because ping.
-		pinged := (pingctx.Err() != nil)
+		// If ping context has timed
+		// out, we should send a ping.
+		//
+		// In any case cancel pingCtx
+		// as we're done with it.
+		shouldPing := (pingCtx.Err() != nil)
 		cncl()
 
 		switch {
-		case !ok && pinged:
-			// The ping context timed out!
-			l.Trace("writing websocket ping")
+		case !haveMsg && !shouldPing:
+			// We have no message and we shouldn't
+			// send a ping; this means the stream
+			// has been closed from the client's end,
+			// so there's nothing further to do here.
+			l.Trace("no message and we shouldn't ping, returning...")
+			return
 
-			// Wrapped context time-out, send a keep-alive "ping".
-			if err := wsConn.WriteControl(websocket.PingMessage, nil, time.Time{}); err != nil {
-				l.Debugf("error writing websocket ping: %v", err)
-				break
+		case haveMsg:
+			// We have a message to stream.
+			l.Tracef("writing websocket message: %+v", msg)
+
+			if err := wsConn.WriteJSON(msg); err != nil {
+				// If there's an error writing then drop the
+				// connection, as client may have disappeared
+				// suddenly; they can reconnect if necessary.
+				l.Debugf("error writing websocket message: %v", err)
+				return
 			}
 
-		case !ok:
-			// Stream was
-			// closed.
-			return
-		}
+		case shouldPing:
+			// We have no message but we do
+			// need to send a keep-alive ping.
+			l.Trace("writing websocket ping")
 
-		l.Trace("writing websocket message: %+v", msg)
-
-		// Received a new message from the processor.
-		if err := wsConn.WriteJSON(msg); err != nil {
-			l.Debugf("error writing websocket message: %v", err)
-			break
+			if err := wsConn.WriteControl(websocket.PingMessage, pingMsg, time.Time{}); err != nil {
+				// If there's an error writing then drop the
+				// connection, as client may have disappeared
+				// suddenly; they can reconnect if necessary.
+				l.Debugf("error writing websocket ping: %v", err)
+				return
+			}
 		}
 	}
-
-	l.Debug("finished websocket write")
 }

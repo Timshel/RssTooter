@@ -22,7 +22,8 @@ import React from "react";
 
 /**
  * - /settings/user/profile
- * - /settings/user/settings
+ * - /settings/user/posts
+ * - /settings/user/emailpassword
  * - /settings/user/migration
  */
 export default function UserMenu() {	
@@ -38,14 +39,29 @@ export default function UserMenu() {
 				icon="fa-user"
 			/>
 			<MenuItem
-				name="Settings"
-				itemUrl="settings"
-				icon="fa-cogs"
+				name="Posts"
+				itemUrl="posts"
+				icon="fa-paper-plane"
+			/>
+			<MenuItem
+				name="Interaction Requests"
+				itemUrl="interaction_requests"
+				icon="fa-commenting-o"
+			/>
+			<MenuItem
+				name="Email & Password"
+				itemUrl="emailpassword"
+				icon="fa-user-secret"
 			/>
 			<MenuItem
 				name="Migration"
 				itemUrl="migration"
 				icon="fa-exchange"
+			/>
+			<MenuItem
+				name="Export & Import"
+				itemUrl="export-import"
+				icon="fa-floppy-o"
 			/>
 		</MenuItem>
 	);

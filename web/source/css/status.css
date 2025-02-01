@@ -121,9 +121,10 @@ main {
 	}
 
 	.text-spoiler > summary {
-		display: inline-block;
 		list-style: none;
-
+		display: flex;
+		flex-direction: column;
+		gap: 0.5rem;
 		padding-bottom: 0.5rem;
 
 		&::-webkit-details-marker {
@@ -131,6 +132,7 @@ main {
 		}
 
 		.button {
+			width: fit-content;
 			white-space: nowrap;
 			cursor: pointer;
 			padding: 0.2rem 0.3rem;
@@ -191,14 +193,6 @@ main {
 				margin: 0;
 				font-size: 1rem;
 				line-height: initial;
-			}
-
-			img {
-				max-width: 100%;
-				margin: 5px auto;
-			}
-			img[alt~="!center"] {
-				display: block;
 			}
 		}
 
@@ -315,6 +309,10 @@ main {
 						"eye sensitive ."
 						".   sensitive  .";
 
+					&::-webkit-details-marker {
+						display: none; /* Safari */
+					}
+
 					.eye.button {
 						grid-area: eye;
 						align-self: start;
@@ -334,6 +332,10 @@ main {
 					.show.sensitive {
 						grid-area: sensitive;
 						align-self: center;
+
+						text-overflow: ellipsis;
+						overflow: hidden;
+						white-space: nowrap;
 
 						.button {
 							cursor: pointer;
@@ -400,8 +402,16 @@ main {
 			grid-column: span 2;
 		}
 
-		&.odd .media-wrapper:first-child, &.double .media-wrapper {
+		&.odd .media-wrapper:first-child,
+		&.double .media-wrapper {
 			grid-row: span 2;
+		}
+
+		@media screen and (max-width: 42rem) {
+			.media-wrapper {
+				grid-column: span 2;
+				grid-row: span 2;
+			}
 		}
 
 		img {

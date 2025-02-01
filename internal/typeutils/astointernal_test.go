@@ -65,7 +65,7 @@ func (suite *ASToInternalTestSuite) jsonToType(in string) vocab.Type {
 func (suite *ASToInternalTestSuite) TestParsePerson() {
 	testPerson := suite.testPeople["https://unknown-instance.com/users/brand_new_person"]
 
-	acct, err := suite.typeconverter.ASRepresentationToAccount(context.Background(), testPerson, "")
+	acct, err := suite.typeconverter.ASRepresentationToAccount(context.Background(), testPerson, "", "")
 	suite.NoError(err)
 
 	suite.Equal("https://unknown-instance.com/users/brand_new_person", acct.URI)
@@ -87,7 +87,7 @@ func (suite *ASToInternalTestSuite) TestParsePerson() {
 func (suite *ASToInternalTestSuite) TestParsePersonWithSharedInbox() {
 	testPerson := suite.testPeople["https://turnip.farm/users/turniplover6969"]
 
-	acct, err := suite.typeconverter.ASRepresentationToAccount(context.Background(), testPerson, "")
+	acct, err := suite.typeconverter.ASRepresentationToAccount(context.Background(), testPerson, "", "")
 	suite.NoError(err)
 
 	suite.Equal("https://turnip.farm/users/turniplover6969", acct.URI)
@@ -145,7 +145,7 @@ func (suite *ASToInternalTestSuite) TestParseGargron() {
 		suite.FailNow("type not coercible")
 	}
 
-	acct, err := suite.typeconverter.ASRepresentationToAccount(context.Background(), rep, "")
+	acct, err := suite.typeconverter.ASRepresentationToAccount(context.Background(), rep, "", "")
 	suite.NoError(err)
 	suite.Equal("https://mastodon.social/inbox", *acct.SharedInboxURI)
 	suite.Equal([]string{"https://tooting.ai/users/Gargron"}, acct.AlsoKnownAsURIs)
@@ -181,9 +181,6 @@ func (suite *ASToInternalTestSuite) TestParseReplyWithMention() {
 	suite.Equal(inReplyToStatus.ID, status.InReplyToID)
 	suite.Equal(inReplyToStatus.URI, status.InReplyToURI)
 	suite.True(*status.Federated)
-	suite.True(*status.Boostable)
-	suite.True(*status.Replyable)
-	suite.True(*status.Likeable)
 	suite.Equal(`<p><span class="h-card"><a href="http://localhost:8080/@the_mighty_zork" class="u-url mention">@<span>the_mighty_zork</span></a></span> nice there it is:</p><p><a href="http://localhost:8080/users/the_mighty_zork/statuses/01F8MHAMCHF6Y650WCRSCP4WMY/activity" rel="nofollow noopener noreferrer" target="_blank"><span class="invisible">https://</span><span class="ellipsis">social.pixie.town/users/f0x/st</span><span class="invisible">atuses/106221628567855262/activity</span></a></p>`, status.Content)
 	suite.Len(status.Mentions, 1)
 	m1 := status.Mentions[0]
@@ -199,7 +196,7 @@ func (suite *ASToInternalTestSuite) TestParseOwncastService() {
 		suite.FailNow("type not coercible")
 	}
 
-	acct, err := suite.typeconverter.ASRepresentationToAccount(context.Background(), rep, "")
+	acct, err := suite.typeconverter.ASRepresentationToAccount(context.Background(), rep, "", "")
 	suite.NoError(err)
 
 	suite.Equal("rgh", acct.Username)
@@ -550,7 +547,7 @@ func (suite *ASToInternalTestSuite) TestParseHonkAccount() {
 		suite.FailNow("type not coercible")
 	}
 
-	acct, err := suite.typeconverter.ASRepresentationToAccount(context.Background(), rep, "")
+	acct, err := suite.typeconverter.ASRepresentationToAccount(context.Background(), rep, "", "")
 	suite.NoError(err)
 	suite.Equal("https://honk.example.org/u/honk_user/followers", acct.FollowersURI)
 	suite.Equal("https://honk.example.org/u/honk_user/following", acct.FollowingURI)
@@ -634,7 +631,7 @@ func (suite *ASToInternalTestSuite) TestParseHonkAccount() {
 	suite.False(*dbAcct.Discoverable)
 
 	// Clear caches.
-	suite.state.Caches.GTS = cache.GTSCaches{}
+	suite.state.Caches.DB = cache.DBCaches{}
 	suite.state.Caches.Init()
 
 	dbAcct, err = suite.db.GetAccountByID(ctx, acct.ID)
@@ -652,6 +649,62 @@ func (suite *ASToInternalTestSuite) TestParseHonkAccount() {
 	suite.Equal("honk.example.org", dbAcct.Domain)
 	suite.True(*dbAcct.Locked)
 	suite.False(*dbAcct.Discoverable)
+}
+
+func (suite *ASToInternalTestSuite) TestParseAccountableWithoutPreferredUsername() {
+	ctx, cncl := context.WithCancel(context.Background())
+	defer cncl()
+
+	testPerson := suite.testPeople["https://unknown-instance.com/users/brand_new_person"]
+	// preferredUsername := "newish_person_actually"
+	username := "brand_new_person"
+
+	// Specifically unset the preferred_username field.
+	testPerson.SetActivityStreamsPreferredUsername(nil)
+
+	// Attempt to parse account model from ActivityStreams.
+	// This should fall back to the passed username argument as no preferred_username is set.
+	acc, err := suite.typeconverter.ASRepresentationToAccount(ctx, testPerson, "", username)
+	suite.NoError(err)
+	suite.Equal(acc.Username, username)
+}
+
+func (suite *ASToInternalTestSuite) TestParseAccountableWithoutAnyUsername() {
+	ctx, cncl := context.WithCancel(context.Background())
+	defer cncl()
+
+	testPerson := suite.testPeople["https://unknown-instance.com/users/brand_new_person"]
+	// preferredUsername := "newish_person_actually"
+	// username := "brand_new_person"
+
+	// Specifically unset the preferred_username field.
+	testPerson.SetActivityStreamsPreferredUsername(nil)
+
+	// Attempt to parse account model from ActivityStreams.
+	// This should return error as we provide no username and no preferred_username is set.
+	acc, err := suite.typeconverter.ASRepresentationToAccount(ctx, testPerson, "", "")
+	suite.Equal(err.Error(), "ASRepresentationToAccount: missing username for https://unknown-instance.com/users/brand_new_person")
+	suite.Nil(acc)
+}
+
+func (suite *ASToInternalTestSuite) TestParseAccountableWithPreferredUsername() {
+	ctx, cncl := context.WithCancel(context.Background())
+	defer cncl()
+
+	testPerson := suite.testPeople["https://unknown-instance.com/users/brand_new_person"]
+	preferredUsername := "newish_person_actually"
+	username := "brand_new_person"
+
+	// Specifically set a known preferred_username field.
+	prop := streams.NewActivityStreamsPreferredUsernameProperty()
+	prop.SetXMLSchemaString(preferredUsername)
+	testPerson.SetActivityStreamsPreferredUsername(prop)
+
+	// Attempt to parse account model from ActivityStreams.
+	// This should use the ActivityStreams preferred_username, instead of the passed argument.
+	acc, err := suite.typeconverter.ASRepresentationToAccount(ctx, testPerson, "", username)
+	suite.NoError(err)
+	suite.Equal(acc.Username, preferredUsername)
 }
 
 func TestASToInternalTestSuite(t *testing.T) {

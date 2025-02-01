@@ -17,26 +17,142 @@
 
 package media
 
-// newHdrBuf returns a buffer of suitable size to
-// read bytes from a file header or magic number.
-//
-// File header is *USUALLY* 261 bytes at the start
-// of a file; magic number can be much less than
-// that (just a few bytes).
-//
-// To cover both cases, this function returns a buffer
-// suitable for whichever is smallest: the first 261
-// bytes of the file, or the whole file.
-//
-// See:
-//
-//   - https://en.wikipedia.org/wiki/File_format#File_header
-//   - https://github.com/h2non/filetype.
-func newHdrBuf(fileSize int) []byte {
-	bufSize := 261
-	if fileSize > 0 && fileSize < bufSize {
-		bufSize = fileSize
+import (
+	"errors"
+	"fmt"
+	"io"
+	"io/fs"
+	"os"
+	"path"
+
+	"codeberg.org/gruf/go-bytesize"
+	"codeberg.org/gruf/go-iotools"
+	"github.com/superseriousbusiness/gotosocial/internal/gtserror"
+)
+
+// file represents one file
+// with the given flag and perms.
+type file struct {
+	abs  string
+	flag int
+	perm os.FileMode
+}
+
+// allowFiles implements fs.FS to allow
+// access to a specified slice of files.
+type allowFiles []file
+
+// Open implements fs.FS.
+func (af allowFiles) Open(name string) (fs.File, error) {
+	for _, file := range af {
+		var (
+			abs  = file.abs
+			flag = file.flag
+			perm = file.perm
+		)
+
+		// Allowed to open file
+		// at absolute path.
+		if name == file.abs {
+			return os.OpenFile(abs, flag, perm)
+		}
+
+		// Check for other valid reads.
+		thisDir, thisFile := path.Split(file.abs)
+
+		// Allowed to read directory itself.
+		if name == thisDir || name == "." {
+			return os.OpenFile(thisDir, flag, perm)
+		}
+
+		// Allowed to read file
+		// itself (at relative path).
+		if name == thisFile {
+			return os.OpenFile(abs, flag, perm)
+		}
 	}
 
-	return make([]byte, bufSize)
+	return nil, os.ErrPermission
+}
+
+// getExtension splits file extension from path.
+func getExtension(path string) string {
+	for i := len(path) - 1; i >= 0 && path[i] != '/'; i-- {
+		if path[i] == '.' {
+			return path[i+1:]
+		}
+	}
+	return ""
+}
+
+// drainToTmp drains data from given reader into a new temp file
+// and closes it, returning the path of the resulting temp file.
+//
+// Note that this function specifically makes attempts to unwrap the
+// io.ReadCloser as much as it can to underlying type, to maximise
+// chance that Linux's sendfile syscall can be utilised for optimal
+// draining of data source to temporary file storage.
+func drainToTmp(rc io.ReadCloser) (string, error) {
+	defer rc.Close()
+
+	// Open new temporary file.
+	tmp, err := os.CreateTemp(
+		os.TempDir(),
+		"gotosocial-*",
+	)
+	if err != nil {
+		return "", err
+	}
+	defer tmp.Close()
+
+	// Extract file path.
+	path := tmp.Name()
+
+	// Limited reader (if any).
+	var lr *io.LimitedReader
+	var limit int64
+
+	// Reader type to use
+	// for draining to tmp.
+	rd := (io.Reader)(rc)
+
+	// Check if reader is actually wrapped,
+	// (as our http client wraps close func).
+	rct, ok := rc.(*iotools.ReadCloserType)
+	if ok {
+
+		// Get unwrapped.
+		rd = rct.Reader
+
+		// Extract limited reader if wrapped.
+		lr, limit = iotools.GetReaderLimit(rd)
+	}
+
+	// Drain reader into tmp.
+	_, err = tmp.ReadFrom(rd)
+	if err != nil {
+		return path, err
+	}
+
+	// Check to see if limit was reached,
+	// (produces more useful error messages).
+	if lr != nil && lr.N <= 0 {
+		err := fmt.Errorf("reached read limit %s", bytesize.Size(limit)) // #nosec G115 -- Just logging
+		return path, gtserror.SetLimitReached(err)
+	}
+
+	return path, nil
+}
+
+// remove only removes paths if not-empty.
+func remove(paths ...string) error {
+	var errs []error
+	for _, path := range paths {
+		if path != "" {
+			if err := os.Remove(path); err != nil {
+				errs = append(errs, fmt.Errorf("error removing %s: %w", path, err))
+			}
+		}
+	}
+	return errors.Join(errs...)
 }

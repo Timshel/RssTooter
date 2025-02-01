@@ -22,6 +22,8 @@ import (
 	"github.com/superseriousbusiness/gotosocial/internal/federation"
 	"github.com/superseriousbusiness/gotosocial/internal/filter/visibility"
 	"github.com/superseriousbusiness/gotosocial/internal/processing/account"
+	"github.com/superseriousbusiness/gotosocial/internal/processing/common"
+	"github.com/superseriousbusiness/gotosocial/internal/processing/conversations"
 	"github.com/superseriousbusiness/gotosocial/internal/processing/media"
 	"github.com/superseriousbusiness/gotosocial/internal/processing/stream"
 	"github.com/superseriousbusiness/gotosocial/internal/state"
@@ -37,13 +39,15 @@ type Processor struct {
 
 func New(
 	state *state.State,
+	common *common.Processor,
 	federator *federation.Federator,
 	converter *typeutils.Converter,
-	filter *visibility.Filter,
+	visFilter *visibility.Filter,
 	emailSender email.Sender,
 	account *account.Processor,
 	media *media.Processor,
 	stream *stream.Processor,
+	conversations *conversations.Processor,
 ) Processor {
 	// Init federate logic
 	// wrapper struct.
@@ -56,19 +60,21 @@ func New(
 	// Init surface logic
 	// wrapper struct.
 	surface := &Surface{
-		State:       state,
-		Converter:   converter,
-		Stream:      stream,
-		Filter:      filter,
-		EmailSender: emailSender,
+		State:         state,
+		Converter:     converter,
+		Stream:        stream,
+		VisFilter:     visFilter,
+		EmailSender:   emailSender,
+		Conversations: conversations,
 	}
 
 	// Init shared util funcs.
 	utils := &utils{
-		state:   state,
-		media:   media,
-		account: account,
-		surface: surface,
+		state:     state,
+		media:     media,
+		account:   account,
+		surface:   surface,
+		converter: converter,
 	}
 
 	return Processor{
@@ -79,6 +85,7 @@ func New(
 			surface:   surface,
 			federate:  federate,
 			account:   account,
+			common:    common,
 			utils:     utils,
 		},
 		fediAPI: fediAPI{
@@ -86,6 +93,7 @@ func New(
 			surface:  surface,
 			federate: federate,
 			account:  account,
+			common:   common,
 			utils:    utils,
 		},
 	}

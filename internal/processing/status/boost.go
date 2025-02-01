@@ -28,6 +28,7 @@ import (
 	"github.com/superseriousbusiness/gotosocial/internal/gtserror"
 	"github.com/superseriousbusiness/gotosocial/internal/gtsmodel"
 	"github.com/superseriousbusiness/gotosocial/internal/messages"
+	"github.com/superseriousbusiness/gotosocial/internal/util"
 )
 
 // BoostCreate processes the boost/reblog of target
@@ -66,7 +67,7 @@ func (p *Processor) BoostCreate(
 	}
 
 	// Ensure valid boost target for requester.
-	boostable, err := p.filter.StatusBoostable(ctx,
+	policyResult, err := p.intFilter.StatusBoostable(ctx,
 		requester,
 		target,
 	)
@@ -75,12 +76,14 @@ func (p *Processor) BoostCreate(
 		return nil, gtserror.NewErrorInternalError(err)
 	}
 
-	if !boostable {
-		err := gtserror.New("status is not boostable")
-		return nil, gtserror.NewErrorNotFound(err)
+	if policyResult.Forbidden() {
+		const errText = "you do not have permission to boost this status"
+		err := gtserror.New(errText)
+		return nil, gtserror.NewErrorForbidden(err, errText)
 	}
 
-	// Status is visible and boostable.
+	// Status is visible and boostable
+	// (though maybe pending approval).
 	boost, err := p.converter.StatusToBoost(ctx,
 		target,
 		requester,
@@ -89,6 +92,38 @@ func (p *Processor) BoostCreate(
 	if err != nil {
 		return nil, gtserror.NewErrorInternalError(err)
 	}
+
+	// Derive pendingApproval status.
+	var pendingApproval bool
+	switch {
+	case policyResult.WithApproval():
+		// We're allowed to do
+		// this pending approval.
+		pendingApproval = true
+
+	case policyResult.MatchedOnCollection():
+		// We're permitted to do this, but since
+		// we matched due to presence in a followers
+		// or following collection, we should mark
+		// as pending approval and wait until we can
+		// prove it's been Accepted by the target.
+		pendingApproval = true
+
+		if *target.Local {
+			// If the target is local we don't need
+			// to wait for an Accept from remote,
+			// we can just preapprove it and have
+			// the processor create the Accept.
+			boost.PreApproved = true
+		}
+
+	case policyResult.Permitted():
+		// We're permitted to do this
+		// based on another kind of match.
+		pendingApproval = false
+	}
+
+	boost.PendingApproval = &pendingApproval
 
 	// Store the new boost.
 	if err := p.state.DB.PutStatus(ctx, boost); err != nil {
@@ -103,6 +138,23 @@ func (p *Processor) BoostCreate(
 		Origin:         requester,
 		Target:         target.Account,
 	})
+
+	// If the boost target status replies to a status
+	// that we own, and has a pending interaction
+	// request, use the boost as an implicit accept.
+	implicitlyAccepted, errWithCode := p.implicitlyAccept(ctx,
+		requester, target,
+	)
+	if errWithCode != nil {
+		return nil, errWithCode
+	}
+
+	// If we ended up implicitly accepting, mark the
+	// target status as no longer pending approval so
+	// it's serialized properly via the API.
+	if implicitlyAccepted {
+		target.PendingApproval = util.Ptr(false)
+	}
 
 	return p.c.GetAPIStatus(ctx, requester, boost)
 }
@@ -184,7 +236,7 @@ func (p *Processor) StatusBoostedBy(ctx context.Context, requestingAccount *gtsm
 		targetStatus = boostedStatus
 	}
 
-	visible, err := p.filter.StatusVisible(ctx, requestingAccount, targetStatus)
+	visible, err := p.visFilter.StatusVisible(ctx, requestingAccount, targetStatus)
 	if err != nil {
 		err = fmt.Errorf("BoostedBy: error seeing if status %s is visible: %s", targetStatus.ID, err)
 		return nil, gtserror.NewErrorNotFound(err)

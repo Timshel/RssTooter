@@ -19,9 +19,11 @@ package status
 
 import (
 	"github.com/superseriousbusiness/gotosocial/internal/federation"
+	"github.com/superseriousbusiness/gotosocial/internal/filter/interaction"
 	"github.com/superseriousbusiness/gotosocial/internal/filter/visibility"
 	"github.com/superseriousbusiness/gotosocial/internal/gtsmodel"
 	"github.com/superseriousbusiness/gotosocial/internal/processing/common"
+	"github.com/superseriousbusiness/gotosocial/internal/processing/interactionrequests"
 	"github.com/superseriousbusiness/gotosocial/internal/processing/polls"
 	"github.com/superseriousbusiness/gotosocial/internal/state"
 	"github.com/superseriousbusiness/gotosocial/internal/text"
@@ -35,12 +37,14 @@ type Processor struct {
 	state        *state.State
 	federator    *federation.Federator
 	converter    *typeutils.Converter
-	filter       *visibility.Filter
+	visFilter    *visibility.Filter
+	intFilter    *interaction.Filter
 	formatter    *text.Formatter
 	parseMention gtsmodel.ParseMentionFunc
 
 	// other processors
-	polls *polls.Processor
+	polls   *polls.Processor
+	intReqs *interactionrequests.Processor
 }
 
 // New returns a new status processor.
@@ -48,9 +52,11 @@ func New(
 	state *state.State,
 	common *common.Processor,
 	polls *polls.Processor,
+	intReqs *interactionrequests.Processor,
 	federator *federation.Federator,
 	converter *typeutils.Converter,
-	filter *visibility.Filter,
+	visFilter *visibility.Filter,
+	intFilter *interaction.Filter,
 	parseMention gtsmodel.ParseMentionFunc,
 ) Processor {
 	return Processor{
@@ -58,9 +64,11 @@ func New(
 		state:        state,
 		federator:    federator,
 		converter:    converter,
-		filter:       filter,
+		visFilter:    visFilter,
+		intFilter:    intFilter,
 		formatter:    text.NewFormatter(state.DB),
 		parseMention: parseMention,
 		polls:        polls,
+		intReqs:      intReqs,
 	}
 }

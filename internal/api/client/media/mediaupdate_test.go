@@ -140,7 +140,7 @@ func (suite *MediaUpdateTestSuite) TestUpdateImage() {
 	ctx.Set(oauth.SessionAuthorizedAccount, suite.testAccounts["local_account_1"])
 
 	// create the request
-	buf, w, err := testrig.CreateMultipartFormData("", "", map[string][]string{
+	buf, w, err := testrig.CreateMultipartFormData(nil, map[string][]string{
 		"id":          {toUpdate.ID},
 		"description": {"new description!"},
 		"focus":       {"-0.1,0.3"},
@@ -175,7 +175,7 @@ func (suite *MediaUpdateTestSuite) TestUpdateImage() {
 	suite.EqualValues("image", attachmentReply.Type)
 	suite.EqualValues(apimodel.MediaMeta{
 		Original: apimodel.MediaDimensions{Width: 800, Height: 450, FrameRate: "", Duration: 0, Bitrate: 0, Size: "800x450", Aspect: 1.7777778},
-		Small:    apimodel.MediaDimensions{Width: 256, Height: 144, FrameRate: "", Duration: 0, Bitrate: 0, Size: "256x144", Aspect: 1.7777778},
+		Small:    apimodel.MediaDimensions{Width: 512, Height: 288, FrameRate: "", Duration: 0, Bitrate: 0, Size: "512x288", Aspect: 1.7777778},
 		Focus:    &apimodel.MediaFocus{X: -0.1, Y: 0.3},
 	}, *attachmentReply.Meta)
 	suite.Equal(toUpdate.Blurhash, *attachmentReply.Blurhash)
@@ -201,7 +201,7 @@ func (suite *MediaUpdateTestSuite) TestUpdateImageShortDescription() {
 	ctx.Set(oauth.SessionAuthorizedAccount, suite.testAccounts["local_account_1"])
 
 	// create the request
-	buf, w, err := testrig.CreateMultipartFormData("", "", map[string][]string{
+	buf, w, err := testrig.CreateMultipartFormData(nil, map[string][]string{
 		"id":          {toUpdate.ID},
 		"description": {"new description!"},
 		"focus":       {"-0.1,0.3"},

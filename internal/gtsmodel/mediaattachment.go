@@ -30,8 +30,8 @@ type MediaAttachment struct {
 	StatusID          string           `bun:"type:CHAR(26),nullzero"`                                      // ID of the status to which this is attached
 	URL               string           `bun:",nullzero"`                                                   // Where can the attachment be retrieved on *this* server
 	RemoteURL         string           `bun:",nullzero"`                                                   // Where can the attachment be retrieved on a remote server (empty for local media)
-	Type              FileType         `bun:",nullzero,notnull"`                                           // Type of file (image/gifv/audio/video/unknown)
-	FileMeta          FileMeta         `bun:",embed:,nullzero,notnull"`                                    // Metadata about the file
+	Type              FileType         `bun:",notnull,default:0"`                                          // Type of file (image/gifv/audio/video/unknown)
+	FileMeta          FileMeta         `bun:",embed:,notnull"`                                             // Metadata about the file
 	AccountID         string           `bun:"type:CHAR(26),nullzero,notnull"`                              // To which account does this attachment belong
 	Description       string           `bun:""`                                                            // Description of the attachment (for screenreaders)
 	ScheduledStatusID string           `bun:"type:CHAR(26),nullzero"`                                      // To which scheduled status does this attachment belong
@@ -44,22 +44,30 @@ type MediaAttachment struct {
 	Cached            *bool            `bun:",nullzero,notnull,default:false"`                             // Is this attachment currently cached by our instance?
 }
 
+// IsLocal returns whether media attachment is local.
+func (m *MediaAttachment) IsLocal() bool {
+	return m.RemoteURL == ""
+}
+
+// IsRemote returns whether media attachment is remote.
+func (m *MediaAttachment) IsRemote() bool {
+	return m.RemoteURL != ""
+}
+
 // File refers to the metadata for the whole file
 type File struct {
-	Path        string    `bun:",nullzero,notnull"`                                           // Path of the file in storage.
-	ContentType string    `bun:",nullzero,notnull"`                                           // MIME content type of the file.
-	FileSize    int       `bun:",notnull"`                                                    // File size in bytes
-	UpdatedAt   time.Time `bun:"type:timestamptz,nullzero,notnull,default:current_timestamp"` // When was the file last updated.
+	Path        string `bun:",notnull"` // Path of the file in storage.
+	ContentType string `bun:",notnull"` // MIME content type of the file.
+	FileSize    int    `bun:",notnull"` // File size in bytes
 }
 
 // Thumbnail refers to a small image thumbnail derived from a larger image, video, or audio file.
 type Thumbnail struct {
-	Path        string    `bun:",nullzero,notnull"`                                           // Path of the file in storage.
-	ContentType string    `bun:",nullzero,notnull"`                                           // MIME content type of the file.
-	FileSize    int       `bun:",notnull"`                                                    // File size in bytes
-	UpdatedAt   time.Time `bun:"type:timestamptz,nullzero,notnull,default:current_timestamp"` // When was the file last updated.
-	URL         string    `bun:",nullzero"`                                                   // What is the URL of the thumbnail on the local server
-	RemoteURL   string    `bun:",nullzero"`                                                   // What is the remote URL of the thumbnail (empty for local media)
+	Path        string `bun:",notnull"`  // Path of the file in storage.
+	ContentType string `bun:",notnull"`  // MIME content type of the file.
+	FileSize    int    `bun:",notnull"`  // File size in bytes
+	URL         string `bun:",nullzero"` // What is the URL of the thumbnail on the local server
+	RemoteURL   string `bun:",nullzero"` // What is the remote URL of the thumbnail (empty for local media)
 }
 
 // ProcessingStatus refers to how far along in the processing stage the attachment is.
@@ -73,17 +81,36 @@ const (
 	ProcessingStatusError      ProcessingStatus = 666 // ProcessingStatusError indicates something went wrong processing the attachment and it won't be tried again--these can be deleted.
 )
 
-// FileType refers to the file type of the media attaachment.
-type FileType string
+// FileType refers to the file
+// type of the media attaachment.
+type FileType int
 
-// MediaAttachment file types.
 const (
-	FileTypeImage   FileType = "Image"   // FileTypeImage is for jpegs, pngs, and standard gifs
-	FileTypeGifv    FileType = "Gifv"    // FileTypeGif is for soundless looping videos that behave like gifs
-	FileTypeAudio   FileType = "Audio"   // FileTypeAudio is for audio-only files (no video)
-	FileTypeVideo   FileType = "Video"   // FileTypeVideo is for files with audio + visual
-	FileTypeUnknown FileType = "Unknown" // FileTypeUnknown is for unknown file types (surprise surprise!)
+	// MediaAttachment file types.
+	FileTypeUnknown FileType = 0 // FileTypeUnknown is for unknown file types (surprise surprise!)
+	FileTypeImage   FileType = 1 // FileTypeImage is for jpegs, pngs, and standard gifs
+	FileTypeAudio   FileType = 2 // FileTypeAudio is for audio-only files (no video)
+	FileTypeVideo   FileType = 3 // FileTypeVideo is for files with audio + visual
+	FileTypeGifv    FileType = 4 // FileTypeGifv is for short video-only files (20s or less, mp4, no audio).
 )
+
+// String returns a stringified, frontend API compatible form of FileType.
+func (t FileType) String() string {
+	switch t {
+	case FileTypeUnknown:
+		return "unknown"
+	case FileTypeImage:
+		return "image"
+	case FileTypeAudio:
+		return "audio"
+	case FileTypeVideo:
+		return "video"
+	case FileTypeGifv:
+		return "gifv"
+	default:
+		panic("invalid filetype")
+	}
+}
 
 // FileMeta describes metadata about the actual contents of the file.
 type FileMeta struct {

@@ -15,6 +15,8 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+//go:build debug || debugenv
+
 package testrig
 
 import (
@@ -53,7 +55,8 @@ import (
 	"github.com/superseriousbusiness/gotosocial/testrig"
 )
 
-// Start creates and starts a gotosocial testrig server
+// Start creates and starts a gotosocial testrig server.
+// This is only enabled in debug builds, else is nil.
 var Start action.GTSAction = func(ctx context.Context) error {
 	testrig.InitTestConfig()
 	testrig.InitTestLog()
@@ -156,10 +159,6 @@ var Start action.GTSAction = func(ctx context.Context) error {
 	}
 	testrig.StandardStorageSetup(state.Storage, "./testrig/media")
 
-	// Initialize workers.
-	testrig.StartNoopWorkers(state)
-	defer testrig.StopWorkers(state)
-
 	// build backend handlers
 	transportController := testrig.NewTestTransportController(state, testrig.NewMockHTTPClient(func(req *http.Request) (*http.Response, error) {
 		r := io.NopCloser(bytes.NewReader([]byte{}))
@@ -200,9 +199,18 @@ var Start action.GTSAction = func(ctx context.Context) error {
 
 	processor := testrig.NewTestProcessor(state, federator, emailSender, mediaManager)
 
+	// Initialize workers.
+	testrig.StartWorkers(state, processor.Workers())
+	defer testrig.StopWorkers(state)
+
 	// Initialize metrics.
 	if err := metrics.Initialize(state.DB); err != nil {
 		return fmt.Errorf("error initializing metrics: %w", err)
+	}
+
+	// Run advanced migrations.
+	if err := processor.AdvancedMigrations().Migrate(ctx); err != nil {
+		return err
 	}
 
 	/*

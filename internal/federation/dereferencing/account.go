@@ -18,6 +18,7 @@
 package dereferencing
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"net/url"
@@ -33,7 +34,6 @@ import (
 	"github.com/superseriousbusiness/gotosocial/internal/id"
 	"github.com/superseriousbusiness/gotosocial/internal/log"
 	"github.com/superseriousbusiness/gotosocial/internal/media"
-	"github.com/superseriousbusiness/gotosocial/internal/transport"
 	"github.com/superseriousbusiness/gotosocial/internal/util"
 )
 
@@ -154,7 +154,7 @@ func (d *Dereferencer) getAccountByURI(ctx context.Context, requestUser string, 
 		}
 
 		// Create and pass-through a new bare-bones model for dereferencing.
-		account, accountable, err := d.enrichAccountSafely(ctx, requestUser, uri, &gtsmodel.Account{
+		account, accountable, err := d.EnrichAccountSafely(ctx, requestUser, uri, &gtsmodel.Account{
 			ID:     id.NewULID(),
 			Domain: uri.Host,
 			URI:    uriStr,
@@ -183,7 +183,7 @@ func (d *Dereferencer) getAccountByURI(ctx context.Context, requestUser string, 
 	}
 
 	// Try to update existing account model.
-	latest, accountable, err := d.enrichAccountSafely(ctx,
+	latest, accountable, err := d.EnrichAccountSafely(ctx,
 		requestUser,
 		uri,
 		account,
@@ -261,7 +261,7 @@ func (d *Dereferencer) getAccountByUsernameDomain(
 		}
 
 		// Create and pass-through a new bare-bones model for dereferencing.
-		account, accountable, err := d.enrichAccountSafely(ctx, requestUser, nil, &gtsmodel.Account{
+		account, accountable, err := d.EnrichAccountSafely(ctx, requestUser, nil, &gtsmodel.Account{
 			ID:       id.NewULID(),
 			Domain:   domain,
 			Username: username,
@@ -333,7 +333,7 @@ func (d *Dereferencer) RefreshAccount(
 	}
 
 	// Try to update + deref passed account model.
-	latest, accountable, err := d.enrichAccountSafely(ctx,
+	latest, accountable, err := d.EnrichAccountSafely(ctx,
 		requestUser,
 		uri,
 		account,
@@ -341,7 +341,7 @@ func (d *Dereferencer) RefreshAccount(
 	)
 	if err != nil {
 		log.Errorf(ctx, "error enriching remote account: %v", err)
-		return nil, nil, gtserror.Newf("error enriching remote account: %w", err)
+		return nil, nil, gtserror.Newf("%w", err)
 	}
 
 	if accountable != nil {
@@ -391,7 +391,7 @@ func (d *Dereferencer) RefreshAccountAsync(
 
 	// Enqueue a worker function to enrich this account async.
 	d.state.Workers.Dereference.Queue.Push(func(ctx context.Context) {
-		latest, accountable, err := d.enrichAccountSafely(ctx, requestUser, uri, account, accountable)
+		latest, accountable, err := d.EnrichAccountSafely(ctx, requestUser, uri, account, accountable)
 		if err != nil {
 			log.Errorf(ctx, "error enriching remote account: %v", err)
 			return
@@ -413,7 +413,7 @@ func (d *Dereferencer) RefreshAccountAsync(
 // enrichAccountSafely wraps enrichAccount() to perform
 // it within the State{}.FedLocks mutexmap, which protects
 // dereferencing actions with per-URI mutex locks.
-func (d *Dereferencer) enrichAccountSafely(
+func (d *Dereferencer) EnrichAccountSafely(
 	ctx context.Context,
 	requestUser string,
 	uri *url.URL,
@@ -510,10 +510,16 @@ func (d *Dereferencer) enrichAccount(
 	}
 
 	if account.Username != "" {
-		// A username was provided so we can attempt a webfinger, this ensures up-to-date accountdomain info.
-		accDomain, accURI, err := d.fingerRemoteAccount(ctx, tsport, account.Username, account.Domain)
-		switch {
+		// A username was provided so we can attempt to webfinger,
+		// this ensures up-to-date account domain, and handles some
+		// edge cases where servers don't provide a preferred_username.
+		accUsername, accDomain, accURI, err := d.fingerRemoteAccount(ctx,
+			tsport,
+			account.Username,
+			account.Domain,
+		)
 
+		switch {
 		case err != nil && account.URI == "":
 			// This is a new account (to us) with username@domain
 			// but failed webfinger, nothing more we can do.
@@ -555,6 +561,9 @@ func (d *Dereferencer) enrichAccount(
 			account.URI = accURI.String()
 			account.Domain = accDomain
 			uri = accURI
+
+			// Specifically only update username if not already set.
+			account.Username = cmp.Or(account.Username, accUsername)
 		}
 	}
 
@@ -591,7 +600,9 @@ func (d *Dereferencer) enrichAccount(
 	d.startHandshake(requestUser, uri)
 	defer d.stopHandshake(requestUser, uri)
 
-	if apubAcc == nil {
+	var resolve bool
+
+	if resolve = (apubAcc == nil); resolve {
 		// We were not given any (partial) ActivityPub
 		// version of this account as a parameter.
 		// Dereference latest version of the account.
@@ -610,7 +621,7 @@ func (d *Dereferencer) enrichAccount(
 		if err != nil {
 			// ResolveAccountable will set gtserror.WrongType
 			// on the returned error, so we don't need to do it here.
-			err = gtserror.Newf("error resolving accountable %s: %w", uri, err)
+			err := gtserror.Newf("error resolving accountable %s: %w", uri, err)
 			return nil, nil, err
 		}
 
@@ -657,15 +668,18 @@ func (d *Dereferencer) enrichAccount(
 	latestAcc, err := d.converter.ASRepresentationToAccount(ctx,
 		apubAcc,
 		account.Domain,
+		account.Username,
 	)
 	if err != nil {
 		// ASRepresentationToAccount will set Malformed on the
 		// returned error, so we don't need to do it here.
-		err = gtserror.Newf("error converting %s to gts model: %w", uri, err)
+		err := gtserror.Newf("error converting %s to gts model: %w", uri, err)
 		return nil, nil, err
 	}
 
 	if account.Username == "" {
+		var accUsername string
+
 		// Assume the host from the
 		// ActivityPub representation.
 		id := ap.GetJSONLDId(apubAcc)
@@ -686,7 +700,7 @@ func (d *Dereferencer) enrichAccount(
 		// https://example.org/@someone@somewhere.else and we've been redirected
 		// from example.org to somewhere.else: we want to take somewhere.else
 		// as the accountDomain then, not the example.org we were redirected from.
-		latestAcc.Domain, _, err = d.fingerRemoteAccount(ctx,
+		accUsername, latestAcc.Domain, _, err = d.fingerRemoteAccount(ctx,
 			tsport,
 			latestAcc.Username,
 			accHost,
@@ -699,6 +713,9 @@ func (d *Dereferencer) enrichAccount(
 				latestAcc.Username, accHost, err,
 			)
 		}
+
+		// Specifically only update username if not already set.
+		latestAcc.Username = cmp.Or(latestAcc.Username, accUsername)
 	}
 
 	if latestAcc.Domain == "" {
@@ -707,14 +724,33 @@ func (d *Dereferencer) enrichAccount(
 		return nil, nil, gtserror.Newf("empty domain for %s", uri)
 	}
 
-	// Ensure the final parsed account URI / URL matches
+	// Ensure the final parsed account URI matches
 	// the input URI we fetched (or received) it as.
-	if expect := uri.String(); latestAcc.URI != expect &&
-		latestAcc.URL != expect {
+	if matches, err := util.URIMatches(
+		uri,
+		append(
+			ap.GetURL(apubAcc),      // account URL(s)
+			ap.GetJSONLDId(apubAcc), // account URI
+		)...,
+	); err != nil {
 		return nil, nil, gtserror.Newf(
-			"dereferenced account uri %s does not match %s",
-			latestAcc.URI, expect,
+			"error checking account uri %s: %w",
+			latestAcc.URI, err,
 		)
+	} else if !matches {
+		return nil, nil, gtserror.Newf(
+			"account uri %s does not match %s",
+			latestAcc.URI, uri.String(),
+		)
+	}
+
+	// Get current time.
+	now := time.Now()
+
+	// Before expending any further serious compute, we need
+	// to ensure account keys haven't unexpectedly been changed.
+	if !verifyAccountKeysOnUpdate(account, latestAcc, now, !resolve) {
+		return nil, nil, gtserror.Newf("account %s pubkey has changed (key rotation required?)", uri)
 	}
 
 	/*
@@ -728,32 +764,30 @@ func (d *Dereferencer) enrichAccount(
 	// Ensure internal db ID is
 	// set and update fetch time.
 	latestAcc.ID = account.ID
-	latestAcc.FetchedAt = time.Now()
+	latestAcc.FetchedAt = now
+	latestAcc.UpdatedAt = now
 
-	// Ensure the account's avatar media is populated, passing in existing to check for changes.
-	if err := d.FetchRemoteAccountAvatar(ctx, tsport, account, latestAcc); err != nil {
+	// Ensure the account's avatar media is populated, passing in existing to check for chages.
+	if err := d.FetchAccountAvatar(ctx, requestUser, account, latestAcc); err != nil {
 		log.Errorf(ctx, "error fetching remote avatar for account %s: %v", uri, err)
 	}
 
-	// Ensure the account's avatar media is populated, passing in existing to check for changes.
-	if err := d.fetchRemoteAccountHeader(ctx, tsport, account, latestAcc); err != nil {
+	// Ensure the account's avatar media is populated, passing in existing to check for chages.
+	if err := d.fetchAccountHeader(ctx, requestUser, account, latestAcc); err != nil {
 		log.Errorf(ctx, "error fetching remote header for account %s: %v", uri, err)
 	}
 
 	// Fetch the latest remote account emoji IDs used in account display name/bio.
-	if _, err = d.fetchRemoteAccountEmojis(ctx, latestAcc, requestUser); err != nil {
+	if err = d.fetchAccountEmojis(ctx, account, latestAcc); err != nil {
 		log.Errorf(ctx, "error fetching remote emojis for account %s: %v", uri, err)
 	}
 
 	if account.IsNew() {
 		// Prefer published/created time from
-		// apubAcc, fall back to FetchedAt value.
+		// apubAcc, fall back to current time.
 		if latestAcc.CreatedAt.IsZero() {
-			latestAcc.CreatedAt = latestAcc.FetchedAt
+			latestAcc.CreatedAt = now
 		}
-
-		// Set time of update from the last-fetched date.
-		latestAcc.UpdatedAt = latestAcc.FetchedAt
 
 		// This is new, put it in the database.
 		err := d.state.DB.PutAccount(ctx, latestAcc)
@@ -767,9 +801,6 @@ func (d *Dereferencer) enrichAccount(
 			latestAcc.CreatedAt = account.CreatedAt
 		}
 
-		// Set time of update from the last-fetched date.
-		latestAcc.UpdatedAt = latestAcc.FetchedAt
-
 		// This is an existing account, update the model in the database.
 		if err := d.state.DB.UpdateAccount(ctx, latestAcc); err != nil {
 			return nil, nil, gtserror.Newf("error updating database: %w", err)
@@ -779,9 +810,9 @@ func (d *Dereferencer) enrichAccount(
 	return latestAcc, apubAcc, nil
 }
 
-func (d *Dereferencer) FetchRemoteAccountAvatar(
+func (d *Dereferencer) FetchAccountAvatar(
 	ctx context.Context,
-	tsport transport.Transport,
+	requestUser string,
 	existingAcc *gtsmodel.Account,
 	latestAcc *gtsmodel.Account,
 ) error {
@@ -808,7 +839,7 @@ func (d *Dereferencer) FetchRemoteAccountAvatar(
 			// Ensuring existing attachment is up-to-date
 			// and any recaching is performed if required.
 			existing, err := d.updateAttachment(ctx,
-				tsport,
+				requestUser,
 				existing,
 				nil,
 			)
@@ -830,18 +861,23 @@ func (d *Dereferencer) FetchRemoteAccountAvatar(
 		}
 	}
 
-	// Fetch newly changed avatar from remote.
-	attachment, err := d.loadAttachment(ctx,
-		tsport,
+	// Fetch newly changed avatar.
+	attachment, err := d.GetMedia(ctx,
+		requestUser,
 		latestAcc.ID,
 		latestAcc.AvatarRemoteURL,
-		&media.AdditionalMediaInfo{
+		media.AdditionalMediaInfo{
 			Avatar:    util.Ptr(true),
 			RemoteURL: &latestAcc.AvatarRemoteURL,
 		},
 	)
 	if err != nil {
-		return gtserror.Newf("error loading attachment %s: %w", latestAcc.AvatarRemoteURL, err)
+		if attachment == nil {
+			return gtserror.Newf("error loading attachment %s: %w", latestAcc.AvatarRemoteURL, err)
+		}
+
+		// non-fatal error occurred during loading, still use it.
+		log.Warnf(ctx, "partially loaded attachment: %v", err)
 	}
 
 	// Set the avatar attachment on account model.
@@ -851,9 +887,9 @@ func (d *Dereferencer) FetchRemoteAccountAvatar(
 	return nil
 }
 
-func (d *Dereferencer) fetchRemoteAccountHeader(
+func (d *Dereferencer) fetchAccountHeader(
 	ctx context.Context,
-	tsport transport.Transport,
+	requestUser string,
 	existingAcc *gtsmodel.Account,
 	latestAcc *gtsmodel.Account,
 ) error {
@@ -880,7 +916,7 @@ func (d *Dereferencer) fetchRemoteAccountHeader(
 			// Ensuring existing attachment is up-to-date
 			// and any recaching is performed if required.
 			existing, err := d.updateAttachment(ctx,
-				tsport,
+				requestUser,
 				existing,
 				nil,
 			)
@@ -902,18 +938,23 @@ func (d *Dereferencer) fetchRemoteAccountHeader(
 		}
 	}
 
-	// Fetch newly changed header from remote.
-	attachment, err := d.loadAttachment(ctx,
-		tsport,
+	// Fetch newly changed header.
+	attachment, err := d.GetMedia(ctx,
+		requestUser,
 		latestAcc.ID,
 		latestAcc.HeaderRemoteURL,
-		&media.AdditionalMediaInfo{
+		media.AdditionalMediaInfo{
 			Header:    util.Ptr(true),
 			RemoteURL: &latestAcc.HeaderRemoteURL,
 		},
 	)
 	if err != nil {
-		return gtserror.Newf("error loading attachment %s: %w", latestAcc.HeaderRemoteURL, err)
+		if attachment == nil {
+			return gtserror.Newf("error loading attachment %s: %w", latestAcc.HeaderRemoteURL, err)
+		}
+
+		// non-fatal error occurred during loading, still use it.
+		log.Warnf(ctx, "partially loaded attachment: %v", err)
 	}
 
 	// Set the header attachment on account model.
@@ -923,124 +964,47 @@ func (d *Dereferencer) fetchRemoteAccountHeader(
 	return nil
 }
 
-func (d *Dereferencer) fetchRemoteAccountEmojis(ctx context.Context, targetAccount *gtsmodel.Account, requestingUsername string) (bool, error) {
-	maybeEmojis := targetAccount.Emojis
-	maybeEmojiIDs := targetAccount.EmojiIDs
-
-	// It's possible that the account had emoji IDs set on it, but not Emojis
-	// themselves, depending on how it was fetched before being passed to us.
-	//
-	// If we only have IDs, fetch the emojis from the db. We know they're in
-	// there or else they wouldn't have IDs.
-	if len(maybeEmojiIDs) > len(maybeEmojis) {
-		maybeEmojis = make([]*gtsmodel.Emoji, 0, len(maybeEmojiIDs))
-		for _, emojiID := range maybeEmojiIDs {
-			maybeEmoji, err := d.state.DB.GetEmojiByID(ctx, emojiID)
-			if err != nil {
-				return false, err
-			}
-			maybeEmojis = append(maybeEmojis, maybeEmoji)
-		}
-	}
-
-	// For all the maybe emojis we have, we either fetch them from the database
-	// (if we haven't already), or dereference them from the remote instance.
-	gotEmojis, err := d.populateEmojis(ctx, maybeEmojis, requestingUsername)
-	if err != nil {
-		return false, err
-	}
-
-	// Extract the ID of each fetched or dereferenced emoji, so we can attach
-	// this to the account if necessary.
-	gotEmojiIDs := make([]string, 0, len(gotEmojis))
-	for _, e := range gotEmojis {
-		gotEmojiIDs = append(gotEmojiIDs, e.ID)
-	}
-
-	var (
-		changed  = false // have the emojis for this account changed?
-		maybeLen = len(maybeEmojis)
-		gotLen   = len(gotEmojis)
+func (d *Dereferencer) fetchAccountEmojis(
+	ctx context.Context,
+	existing *gtsmodel.Account,
+	account *gtsmodel.Account,
+) error {
+	// Fetch the updated emojis for our account.
+	emojis, changed, err := d.fetchEmojis(ctx,
+		existing.Emojis,
+		account.Emojis,
 	)
-
-	// if the length of everything is zero, this is simple:
-	// nothing has changed and there's nothing to do
-	if maybeLen == 0 && gotLen == 0 {
-		return changed, nil
+	if err != nil {
+		return gtserror.Newf("error fetching emojis: %w", err)
 	}
 
-	// if the *amount* of emojis on the account has changed, then the got emojis
-	// are definitely different from the previous ones (if there were any) --
-	// the account has either more or fewer emojis set on it now, so take the
-	// discovered emojis as the new correct ones.
-	if maybeLen != gotLen {
-		changed = true
-		targetAccount.Emojis = gotEmojis
-		targetAccount.EmojiIDs = gotEmojiIDs
-		return changed, nil
+	if !changed {
+		// Use existing account emoji objects.
+		account.EmojiIDs = existing.EmojiIDs
+		account.Emojis = existing.Emojis
+		return nil
 	}
 
-	// if the lengths are the same but not all of the slices are
-	// zero, something *might* have changed, so we have to check
+	// Set latest emojis.
+	account.Emojis = emojis
 
-	// 1. did we have emojis before that we don't have now?
-	for _, maybeEmoji := range maybeEmojis {
-		var stillPresent bool
-
-		for _, gotEmoji := range gotEmojis {
-			if maybeEmoji.URI == gotEmoji.URI {
-				// the emoji we maybe had is still present now,
-				// so we can stop checking gotEmojis
-				stillPresent = true
-				break
-			}
-		}
-
-		if !stillPresent {
-			// at least one maybeEmoji is no longer present in
-			// the got emojis, so we can stop checking now
-			changed = true
-			targetAccount.Emojis = gotEmojis
-			targetAccount.EmojiIDs = gotEmojiIDs
-			return changed, nil
-		}
+	// Iterate over and set changed emoji IDs.
+	account.EmojiIDs = make([]string, len(emojis))
+	for i, emoji := range emojis {
+		account.EmojiIDs[i] = emoji.ID
 	}
 
-	// 2. do we have emojis now that we didn't have before?
-	for _, gotEmoji := range gotEmojis {
-		var wasPresent bool
-
-		for _, maybeEmoji := range maybeEmojis {
-			// check emoji IDs here as well, because unreferenced
-			// maybe emojis we didn't already have would not have
-			// had IDs set on them yet
-			if gotEmoji.URI == maybeEmoji.URI && gotEmoji.ID == maybeEmoji.ID {
-				// this got emoji was present already in the maybeEmoji,
-				// so we can stop checking through maybeEmojis
-				wasPresent = true
-				break
-			}
-		}
-
-		if !wasPresent {
-			// at least one gotEmojis was not present in
-			// the maybeEmojis, so we can stop checking now
-			changed = true
-			targetAccount.Emojis = gotEmojis
-			targetAccount.EmojiIDs = gotEmojiIDs
-			return changed, nil
-		}
-	}
-
-	return changed, nil
+	return nil
 }
 
-func (d *Dereferencer) dereferenceAccountStats(ctx context.Context, requestUser string, account *gtsmodel.Account) error {
+func (d *Dereferencer) dereferenceAccountStats(
+	ctx context.Context,
+	requestUser string,
+	account *gtsmodel.Account,
+) error {
 	// Ensure we have a stats model for this account.
-	if account.Stats == nil {
-		if err := d.state.DB.PopulateAccountStats(ctx, account); err != nil {
-			return gtserror.Newf("db error getting account stats: %w", err)
-		}
+	if err := d.state.DB.PopulateAccountStats(ctx, account); err != nil {
+		return gtserror.Newf("db error getting account stats: %w", err)
 	}
 
 	// We want to update stats by getting remote

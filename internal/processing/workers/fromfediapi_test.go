@@ -42,11 +42,15 @@ type FromFediAPITestSuite struct {
 
 // remote_account_1 boosts the first status of local_account_1
 func (suite *FromFediAPITestSuite) TestProcessFederationAnnounce() {
-	testStructs := suite.SetupTestStructs()
-	defer suite.TearDownTestStructs(testStructs)
+	testStructs := testrig.SetupTestStructs(rMediaPath, rTemplatePath)
+	defer testrig.TearDownTestStructs(testStructs)
 
-	boostedStatus := suite.testStatuses["local_account_1_status_1"]
-	boostingAccount := suite.testAccounts["remote_account_1"]
+	boostedStatus := &gtsmodel.Status{}
+	*boostedStatus = *suite.testStatuses["local_account_1_status_1"]
+
+	boostingAccount := &gtsmodel.Account{}
+	*boostingAccount = *suite.testAccounts["remote_account_1"]
+
 	announceStatus := &gtsmodel.Status{}
 	announceStatus.URI = "https://example.org/some-announce-uri"
 	announceStatus.BoostOfURI = boostedStatus.URI
@@ -64,13 +68,25 @@ func (suite *FromFediAPITestSuite) TestProcessFederationAnnounce() {
 		Receiving:      suite.testAccounts["local_account_1"],
 		Requesting:     boostingAccount,
 	})
-	suite.NoError(err)
+	if err != nil {
+		suite.FailNow(err.Error())
+	}
 
-	// side effects should be triggered
+	// Wait for side effects to trigger:
 	// 1. status should have an ID, and be in the database
-	suite.NotEmpty(announceStatus.ID)
-	_, err = testStructs.State.DB.GetStatusByID(context.Background(), announceStatus.ID)
-	suite.NoError(err)
+	if !testrig.WaitFor(func() bool {
+		if announceStatus.ID == "" {
+			return false
+		}
+
+		_, err = testStructs.State.DB.GetStatusByID(
+			context.Background(),
+			announceStatus.ID,
+		)
+		return err == nil
+	}) {
+		suite.FailNow("timed out waiting for announce to be in the database")
+	}
 
 	// 2. a notification should exist for the announce
 	where := []db.Where{
@@ -90,12 +106,17 @@ func (suite *FromFediAPITestSuite) TestProcessFederationAnnounce() {
 }
 
 func (suite *FromFediAPITestSuite) TestProcessReplyMention() {
-	testStructs := suite.SetupTestStructs()
-	defer suite.TearDownTestStructs(testStructs)
+	testStructs := testrig.SetupTestStructs(rMediaPath, rTemplatePath)
+	defer testrig.TearDownTestStructs(testStructs)
 
-	repliedAccount := suite.testAccounts["local_account_1"]
-	repliedStatus := suite.testStatuses["local_account_1_status_1"]
-	replyingAccount := suite.testAccounts["remote_account_1"]
+	repliedAccount := &gtsmodel.Account{}
+	*repliedAccount = *suite.testAccounts["local_account_1"]
+
+	repliedStatus := &gtsmodel.Status{}
+	*repliedStatus = *suite.testStatuses["local_account_1_status_1"]
+
+	replyingAccount := &gtsmodel.Account{}
+	*replyingAccount = *suite.testAccounts["remote_account_1"]
 
 	// Set the replyingAccount's last fetched_at
 	// date to something recent so no refresh is attempted,
@@ -128,12 +149,19 @@ func (suite *FromFediAPITestSuite) TestProcessReplyMention() {
 		Receiving:      repliedAccount,
 		Requesting:     replyingAccount,
 	})
-	suite.NoError(err)
+	if err != nil {
+		suite.FailNow(err.Error())
+	}
 
-	// side effects should be triggered
+	// Wait for side effects to trigger:
 	// 1. status should be in the database
-	replyingStatus, err := testStructs.State.DB.GetStatusByURI(context.Background(), replyingURI)
-	suite.NoError(err)
+	var replyingStatus *gtsmodel.Status
+	if !testrig.WaitFor(func() bool {
+		replyingStatus, err = testStructs.State.DB.GetStatusByURI(context.Background(), replyingURI)
+		return err == nil
+	}) {
+		suite.FailNow("timed out waiting for replying status to be in the database")
+	}
 
 	// 2. a notification should exist for the mention
 	var notif gtsmodel.Notification
@@ -162,8 +190,8 @@ func (suite *FromFediAPITestSuite) TestProcessReplyMention() {
 }
 
 func (suite *FromFediAPITestSuite) TestProcessFave() {
-	testStructs := suite.SetupTestStructs()
-	defer suite.TearDownTestStructs(testStructs)
+	testStructs := testrig.SetupTestStructs(rMediaPath, rTemplatePath)
+	defer testrig.TearDownTestStructs(testStructs)
 
 	favedAccount := suite.testAccounts["local_account_1"]
 	favedStatus := suite.testStatuses["local_account_1_status_1"]
@@ -234,8 +262,8 @@ func (suite *FromFediAPITestSuite) TestProcessFave() {
 // This tests for an issue we were seeing where Misskey sends out faves to inboxes of people that don't own
 // the fave, but just follow the actor who received the fave.
 func (suite *FromFediAPITestSuite) TestProcessFaveWithDifferentReceivingAccount() {
-	testStructs := suite.SetupTestStructs()
-	defer suite.TearDownTestStructs(testStructs)
+	testStructs := testrig.SetupTestStructs(rMediaPath, rTemplatePath)
+	defer testrig.TearDownTestStructs(testStructs)
 
 	receivingAccount := suite.testAccounts["local_account_2"]
 	favedAccount := suite.testAccounts["local_account_1"]
@@ -299,13 +327,16 @@ func (suite *FromFediAPITestSuite) TestProcessFaveWithDifferentReceivingAccount(
 }
 
 func (suite *FromFediAPITestSuite) TestProcessAccountDelete() {
-	testStructs := suite.SetupTestStructs()
-	defer suite.TearDownTestStructs(testStructs)
+	testStructs := testrig.SetupTestStructs(rMediaPath, rTemplatePath)
+	defer testrig.TearDownTestStructs(testStructs)
 
 	ctx := context.Background()
 
-	deletedAccount := suite.testAccounts["remote_account_1"]
-	receivingAccount := suite.testAccounts["local_account_1"]
+	deletedAccount := &gtsmodel.Account{}
+	*deletedAccount = *suite.testAccounts["remote_account_1"]
+
+	receivingAccount := &gtsmodel.Account{}
+	*receivingAccount = *suite.testAccounts["local_account_1"]
 
 	// before doing the delete....
 	// make local_account_1 and remote_account_1 into mufos
@@ -390,8 +421,8 @@ func (suite *FromFediAPITestSuite) TestProcessAccountDelete() {
 }
 
 func (suite *FromFediAPITestSuite) TestProcessFollowRequestLocked() {
-	testStructs := suite.SetupTestStructs()
-	defer suite.TearDownTestStructs(testStructs)
+	testStructs := testrig.SetupTestStructs(rMediaPath, rTemplatePath)
+	defer testrig.TearDownTestStructs(testStructs)
 
 	ctx := context.Background()
 
@@ -447,8 +478,8 @@ func (suite *FromFediAPITestSuite) TestProcessFollowRequestLocked() {
 }
 
 func (suite *FromFediAPITestSuite) TestProcessFollowRequestUnlocked() {
-	testStructs := suite.SetupTestStructs()
-	defer suite.TearDownTestStructs(testStructs)
+	testStructs := testrig.SetupTestStructs(rMediaPath, rTemplatePath)
+	defer testrig.TearDownTestStructs(testStructs)
 
 	ctx := context.Background()
 
@@ -548,8 +579,8 @@ func (suite *FromFediAPITestSuite) TestProcessFollowRequestUnlocked() {
 
 // TestCreateStatusFromIRI checks if a forwarded status can be dereferenced by the processor.
 func (suite *FromFediAPITestSuite) TestCreateStatusFromIRI() {
-	testStructs := suite.SetupTestStructs()
-	defer suite.TearDownTestStructs(testStructs)
+	testStructs := testrig.SetupTestStructs(rMediaPath, rTemplatePath)
+	defer testrig.TearDownTestStructs(testStructs)
 
 	ctx := context.Background()
 
@@ -573,8 +604,8 @@ func (suite *FromFediAPITestSuite) TestCreateStatusFromIRI() {
 }
 
 func (suite *FromFediAPITestSuite) TestMoveAccount() {
-	testStructs := suite.SetupTestStructs()
-	defer suite.TearDownTestStructs(testStructs)
+	testStructs := testrig.SetupTestStructs(rMediaPath, rTemplatePath)
+	defer testrig.TearDownTestStructs(testStructs)
 
 	// We're gonna migrate foss_satan to our local admin account.
 	ctx := context.Background()

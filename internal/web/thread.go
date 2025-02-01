@@ -20,7 +20,6 @@ package web
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -29,7 +28,6 @@ import (
 	apimodel "github.com/superseriousbusiness/gotosocial/internal/api/model"
 	apiutil "github.com/superseriousbusiness/gotosocial/internal/api/util"
 	"github.com/superseriousbusiness/gotosocial/internal/gtserror"
-	"github.com/superseriousbusiness/gotosocial/internal/oauth"
 )
 
 func (m *Module) threadGETHandler(c *gin.Context) {
@@ -88,16 +86,8 @@ func (m *Module) threadGETHandler(c *gin.Context) {
 
 	// text/html has been requested. Proceed with getting the web view of the status.
 
-	// Don't require auth for web endpoints, but do take it if it was provided.
-	// authed.Account might end up nil here, but that's fine in case of public pages.
-	authed, err := oauth.Authed(c, false, false, false, false)
-	if err != nil {
-		apiutil.WebErrorHandler(c, gtserror.NewErrorUnauthorized(err, err.Error()), m.processor.InstanceGetV1)
-		return
-	}
-
 	// Fetch the target account so we can do some checks on it.
-	targetAccount, errWithCode := m.processor.Account().GetLocalByUsername(ctx, authed.Account, targetUsername)
+	targetAccount, errWithCode := m.processor.Account().GetWeb(ctx, targetUsername)
 	if errWithCode != nil {
 		apiutil.WebErrorHandler(c, errWithCode, instanceGet)
 		return
@@ -110,31 +100,17 @@ func (m *Module) threadGETHandler(c *gin.Context) {
 		return
 	}
 
-	// Get the status itself from the processor using provided ID and authorization (if any).
-	status, errWithCode := m.processor.Status().WebGet(ctx, targetStatusID)
+	// Get the thread context. This will fetch the target status as well.
+	context, errWithCode := m.processor.Status().WebContextGet(ctx, targetStatusID)
 	if errWithCode != nil {
 		apiutil.WebErrorHandler(c, errWithCode, instanceGet)
 		return
 	}
 
 	// Ensure status actually belongs to target account.
-	if status.GetAccountID() != targetAccount.ID {
+	if context.Status.Account.ID != targetAccount.ID {
 		err := fmt.Errorf("target account %s does not own status %s", targetUsername, targetStatusID)
 		apiutil.WebErrorHandler(c, gtserror.NewErrorNotFound(err), instanceGet)
-		return
-	}
-
-	// Don't render boosts/reblogs as top-level statuses.
-	if status.Reblog != nil {
-		err := errors.New("status is a boost wrapper / reblog")
-		apiutil.WebErrorHandler(c, gtserror.NewErrorNotFound(err), instanceGet)
-		return
-	}
-
-	// Fill in the rest of the thread context.
-	context, errWithCode := m.processor.Status().WebContextGet(ctx, targetStatusID)
-	if errWithCode != nil {
-		apiutil.WebErrorHandler(c, errWithCode, instanceGet)
 		return
 	}
 
@@ -168,11 +144,10 @@ func (m *Module) threadGETHandler(c *gin.Context) {
 	page := apiutil.WebPage{
 		Template:    "thread.tmpl",
 		Instance:    instance,
-		OGMeta:      apiutil.OGBase(instance).WithStatus(status),
+		OGMeta:      apiutil.OGBase(instance).WithStatus(context.Status),
 		Stylesheets: stylesheets,
 		Javascript:  []string{jsFrontend},
 		Extra: map[string]any{
-			"status":  status,
 			"context": context,
 		},
 	}

@@ -24,6 +24,8 @@ import (
 	"github.com/stretchr/testify/suite"
 	"github.com/superseriousbusiness/gotosocial/internal/db"
 	"github.com/superseriousbusiness/gotosocial/internal/gtsmodel"
+	"github.com/superseriousbusiness/gotosocial/internal/id"
+	"github.com/superseriousbusiness/gotosocial/internal/paging"
 	"github.com/superseriousbusiness/gotosocial/internal/util"
 	"github.com/superseriousbusiness/gotosocial/testrig"
 )
@@ -61,14 +63,109 @@ func (suite *ReportTestSuite) TestGetReportByURI() {
 }
 
 func (suite *ReportTestSuite) TestGetAllReports() {
-	reports, err := suite.db.GetReports(context.Background(), nil, "", "", "", "", "", 0)
+	reports, err := suite.db.GetReports(
+		context.Background(),
+		nil,
+		"",
+		"",
+		&paging.Page{},
+	)
 	suite.NoError(err)
 	suite.NotEmpty(reports)
 }
 
+func (suite *ReportTestSuite) TestReportPagingDown() {
+	// Get one from the top.
+	reports1, err := suite.db.GetReports(
+		context.Background(),
+		nil,
+		"",
+		"",
+		&paging.Page{
+			Limit: 1,
+		},
+	)
+	if err != nil {
+		suite.FailNow(err.Error())
+	}
+	if l := len(reports1); l != 1 {
+		suite.FailNowf("", "expected reports len 1, got %d", l)
+	}
+	id1 := reports1[0].ID
+
+	// Use this one to page down.
+	reports2, err := suite.db.GetReports(
+		context.Background(),
+		nil,
+		"",
+		"",
+		&paging.Page{
+			Limit: 1,
+			Max:   paging.MaxID(id1),
+		},
+	)
+	if err != nil {
+		suite.FailNow(err.Error())
+	}
+	if l := len(reports2); l != 1 {
+		suite.FailNowf("", "expected reports len 1, got %d", l)
+	}
+	id2 := reports2[0].ID
+
+	suite.Greater(id1, id2)
+}
+
+func (suite *ReportTestSuite) TestReportPagingUp() {
+	// Get one from the bottom.
+	reports1, err := suite.db.GetReports(
+		context.Background(),
+		nil,
+		"",
+		"",
+		&paging.Page{
+			Limit: 1,
+			Min:   paging.MinID(id.Lowest),
+		},
+	)
+	if err != nil {
+		suite.FailNow(err.Error())
+	}
+	if l := len(reports1); l != 1 {
+		suite.FailNowf("", "expected reports len 1, got %d", l)
+	}
+	id1 := reports1[0].ID
+
+	// Use this one to page up.
+	reports2, err := suite.db.GetReports(
+		context.Background(),
+		nil,
+		"",
+		"",
+		&paging.Page{
+			Limit: 1,
+			Min:   paging.MinID(id1),
+		},
+	)
+	if err != nil {
+		suite.FailNow(err.Error())
+	}
+	if l := len(reports2); l != 1 {
+		suite.FailNowf("", "expected reports len 1, got %d", l)
+	}
+	id2 := reports2[0].ID
+
+	suite.Less(id1, id2)
+}
+
 func (suite *ReportTestSuite) TestGetAllReportsByAccountID() {
 	accountID := suite.testAccounts["local_account_2"].ID
-	reports, err := suite.db.GetReports(context.Background(), nil, accountID, "", "", "", "", 0)
+	reports, err := suite.db.GetReports(
+		context.Background(),
+		nil,
+		accountID,
+		"",
+		&paging.Page{},
+	)
 	suite.NoError(err)
 	suite.NotEmpty(reports)
 	for _, r := range reports {
@@ -105,7 +202,7 @@ func (suite *ReportTestSuite) TestUpdateReport() {
 	report.ActionTakenByAccountID = suite.testAccounts["admin_account"].ID
 	report.ActionTakenAt = testrig.TimeMustParse("2022-05-14T12:20:03+02:00")
 
-	if _, err := suite.db.UpdateReport(ctx, report, "action_taken", "action_taken_by_account_id", "action_taken_at"); err != nil {
+	if err := suite.db.UpdateReport(ctx, report, "action_taken", "action_taken_by_account_id", "action_taken_at"); err != nil {
 		suite.FailNow(err.Error())
 	}
 
@@ -131,7 +228,7 @@ func (suite *ReportTestSuite) TestUpdateReportAllColumns() {
 	report.ActionTakenByAccountID = suite.testAccounts["admin_account"].ID
 	report.ActionTakenAt = testrig.TimeMustParse("2022-05-14T12:20:03+02:00")
 
-	if _, err := suite.db.UpdateReport(ctx, report); err != nil {
+	if err := suite.db.UpdateReport(ctx, report); err != nil {
 		suite.FailNow(err.Error())
 	}
 

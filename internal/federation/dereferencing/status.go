@@ -20,6 +20,7 @@ package dereferencing
 import (
 	"context"
 	"errors"
+	"net/http"
 	"net/url"
 	"slices"
 	"time"
@@ -33,7 +34,6 @@ import (
 	"github.com/superseriousbusiness/gotosocial/internal/id"
 	"github.com/superseriousbusiness/gotosocial/internal/log"
 	"github.com/superseriousbusiness/gotosocial/internal/media"
-	"github.com/superseriousbusiness/gotosocial/internal/transport"
 	"github.com/superseriousbusiness/gotosocial/internal/util"
 )
 
@@ -76,7 +76,7 @@ func statusFresh(
 
 // GetStatusByURI will attempt to fetch a status by its URI, first checking the database. In the case of a newly-met remote model, or a remote model whose 'last_fetched' date
 // is beyond a certain interval, the status will be dereferenced. In the case of dereferencing, some low-priority status information may be enqueued for asynchronous fetching,
-// e.g. dereferencing the status thread. Param 'syncParent' = true indicates to fetch status ancestors synchronously. An ActivityPub object indicates the status was dereferenced.
+// e.g. dereferencing the status thread. An ActivityPub object indicates the status was dereferenced.
 func (d *Dereferencer) GetStatusByURI(ctx context.Context, requestUser string, uri *url.URL) (*gtsmodel.Status, ap.Statusable, error) {
 
 	// Fetch and dereference / update status if necessary.
@@ -149,7 +149,7 @@ func (d *Dereferencer) getStatusByURI(ctx context.Context, requestUser string, u
 		}
 
 		// Create and pass-through a new bare-bones model for deref.
-		return d.enrichStatusSafely(ctx, requestUser, uri, &gtsmodel.Status{
+		return d.EnrichStatusSafely(ctx, requestUser, uri, &gtsmodel.Status{
 			Local: util.Ptr(false),
 			URI:   uriStr,
 		}, nil)
@@ -165,22 +165,13 @@ func (d *Dereferencer) getStatusByURI(ctx context.Context, requestUser string, u
 		return status, nil, false, nil
 	}
 
-	// Try to deref and update existing status model.
-	latest, statusable, isNew, err := d.enrichStatusSafely(ctx,
+	// Try to deref and update existing.
+	return d.EnrichStatusSafely(ctx,
 		requestUser,
 		uri,
 		status,
 		nil,
 	)
-
-	if err != nil {
-		// fallback to the
-		// existing status.
-		latest = status
-		statusable = nil
-	}
-
-	return latest, statusable, isNew, err
 }
 
 // RefreshStatus is functionally equivalent to GetStatusByURI(), except that it requires a pre
@@ -206,15 +197,12 @@ func (d *Dereferencer) RefreshStatus(
 	}
 
 	// Try to update + dereference the passed status model.
-	latest, statusable, isNew, err := d.enrichStatusSafely(ctx,
+	latest, statusable, isNew, err := d.EnrichStatusSafely(ctx,
 		requestUser,
 		uri,
 		status,
 		statusable,
 	)
-	if err != nil {
-		return nil, nil, err
-	}
 
 	if statusable != nil {
 		// Deref parents + children.
@@ -227,7 +215,7 @@ func (d *Dereferencer) RefreshStatus(
 		)
 	}
 
-	return latest, statusable, nil
+	return latest, statusable, err
 }
 
 // RefreshStatusAsync is functionally equivalent to RefreshStatus(), except that ALL
@@ -255,7 +243,7 @@ func (d *Dereferencer) RefreshStatusAsync(
 
 	// Enqueue a worker function to re-fetch this status entirely async.
 	d.state.Workers.Dereference.Queue.Push(func(ctx context.Context) {
-		latest, statusable, _, err := d.enrichStatusSafely(ctx,
+		latest, statusable, _, err := d.EnrichStatusSafely(ctx,
 			requestUser,
 			uri,
 			status,
@@ -276,10 +264,11 @@ func (d *Dereferencer) RefreshStatusAsync(
 	})
 }
 
-// enrichStatusSafely wraps enrichStatus() to perform
-// it within the State{}.FedLocks mutexmap, which protects
-// dereferencing actions with per-URI mutex locks.
-func (d *Dereferencer) enrichStatusSafely(
+// enrichStatusSafely wraps enrichStatus() to perform it within
+// a State{}.FedLocks mutexmap, which protects it within per-URI
+// mutex locks. This also handles necessary delete of now-deleted
+// statuses, and updating fetched_at on returned HTTP errors.
+func (d *Dereferencer) EnrichStatusSafely(
 	ctx context.Context,
 	requestUser string,
 	uri *url.URL,
@@ -308,25 +297,30 @@ func (d *Dereferencer) enrichStatusSafely(
 	defer unlock()
 
 	// Perform status enrichment with passed vars.
-	latest, apubStatus, err := d.enrichStatus(ctx,
+	latest, statusable, err := d.enrichStatus(ctx,
 		requestUser,
 		uri,
 		status,
 		statusable,
 	)
 
-	if gtserror.StatusCode(err) >= 400 {
-		if isNew {
-			// This was a new status enrich
-			// attempt which failed before we
-			// got to store it, so we can't
-			// return anything useful.
-			return nil, nil, isNew, err
+	// Check for a returned HTTP code via error.
+	switch code := gtserror.StatusCode(err); {
+
+	// Gone (410) definitely indicates deletion.
+	// Remove status if it was an existing one.
+	case code == http.StatusGone && !isNew:
+		if err := d.state.DB.DeleteStatusByID(ctx, status.ID); err != nil {
+			log.Error(ctx, "error deleting gone status %s: %v", uriStr, err)
 		}
 
-		// We had this status stored already
-		// before this enrichment attempt.
-		//
+		// Don't return any status.
+		return nil, nil, false, err
+
+	// Any other HTTP error mesg
+	// code, with existing status.
+	case code >= 400 && !isNew:
+
 		// Update fetched_at to slow re-attempts
 		// but don't return early. We can still
 		// return the model we had stored already.
@@ -334,6 +328,16 @@ func (d *Dereferencer) enrichStatusSafely(
 		if err := d.state.DB.UpdateStatus(ctx, status, "fetched_at"); err != nil {
 			log.Error(ctx, "error updating %s fetched_at: %v", uriStr, err)
 		}
+
+		// See below.
+		fallthrough
+
+	// In case of error with an existing
+	// status in the database, return error
+	// but still return existing status.
+	case err != nil && !isNew:
+		latest = status
+		statusable = nil
 	}
 
 	// Unlock now
@@ -341,11 +345,6 @@ func (d *Dereferencer) enrichStatusSafely(
 	unlock()
 
 	if errors.Is(err, db.ErrAlreadyExists) {
-		// Ensure AP model isn't set,
-		// otherwise this indicates WE
-		// enriched the status.
-		apubStatus = nil
-
 		// We leave 'isNew' set so that caller
 		// still dereferences parents, otherwise
 		// the version we pass back may not have
@@ -363,7 +362,7 @@ func (d *Dereferencer) enrichStatusSafely(
 		}
 	}
 
-	return latest, apubStatus, isNew, err
+	return latest, statusable, isNew, err
 }
 
 // enrichStatus will enrich the given status, whether a new
@@ -374,8 +373,12 @@ func (d *Dereferencer) enrichStatus(
 	requestUser string,
 	uri *url.URL,
 	status *gtsmodel.Status,
-	apubStatus ap.Statusable,
-) (*gtsmodel.Status, ap.Statusable, error) {
+	statusable ap.Statusable,
+) (
+	*gtsmodel.Status,
+	ap.Statusable,
+	error,
+) {
 	// Pre-fetch a transport for requesting username, used by later dereferencing.
 	tsport, err := d.transportController.NewTransportForUsername(ctx, requestUser)
 	if err != nil {
@@ -386,11 +389,11 @@ func (d *Dereferencer) enrichStatus(
 	if blocked, err := d.state.DB.IsDomainBlocked(ctx, uri.Host); err != nil {
 		return nil, nil, gtserror.Newf("error checking blocked domain: %w", err)
 	} else if blocked {
-		err = gtserror.Newf("%s is blocked", uri.Host)
+		err := gtserror.Newf("%s is blocked", uri.Host)
 		return nil, nil, gtserror.SetUnretrievable(err)
 	}
 
-	if apubStatus == nil {
+	if statusable == nil {
 		// Dereference latest version of the status.
 		rsp, err := tsport.Dereference(ctx, uri)
 		if err != nil {
@@ -399,7 +402,7 @@ func (d *Dereferencer) enrichStatus(
 		}
 
 		// Attempt to resolve ActivityPub status from response.
-		apubStatus, err = ap.ResolveStatusable(ctx, rsp.Body)
+		statusable, err = ap.ResolveStatusable(ctx, rsp.Body)
 
 		// Tidy up now done.
 		_ = rsp.Body.Close()
@@ -407,7 +410,7 @@ func (d *Dereferencer) enrichStatus(
 		if err != nil {
 			// ResolveStatusable will set gtserror.WrongType
 			// on the returned error, so we don't need to do it here.
-			err = gtserror.Newf("error resolving statusable %s: %w", uri, err)
+			err := gtserror.Newf("error resolving statusable %s: %w", uri, err)
 			return nil, nil, err
 		}
 
@@ -441,7 +444,7 @@ func (d *Dereferencer) enrichStatus(
 	}
 
 	// Get the attributed-to account in order to fetch profile.
-	attributedTo, err := ap.ExtractAttributedToURI(apubStatus)
+	attributedTo, err := ap.ExtractAttributedToURI(statusable)
 	if err != nil {
 		return nil, nil, gtserror.New("attributedTo was empty")
 	}
@@ -449,12 +452,15 @@ func (d *Dereferencer) enrichStatus(
 	// Ensure we have the author account of the status dereferenced (+ up-to-date). If this is a new status
 	// (i.e. status.AccountID == "") then any error here is irrecoverable. status.AccountID must ALWAYS be set.
 	if _, _, err := d.getAccountByURI(ctx, requestUser, attributedTo); err != nil && status.AccountID == "" {
-		return nil, nil, gtserror.Newf("failed to dereference status author %s: %w", uri, err)
+
+		// Note that we specifically DO NOT wrap the error, instead collapsing it as string.
+		// Errors fetching an account do not necessarily relate to dereferencing the status.
+		return nil, nil, gtserror.Newf("failed to dereference status author %s: %v", uri, err)
 	}
 
-	// ActivityPub model was recently dereferenced, so assume that passed status
-	// may contain out-of-date information, convert AP model to our GTS model.
-	latestStatus, err := d.converter.ASStatusToStatus(ctx, apubStatus)
+	// ActivityPub model was recently dereferenced, so assume passed status
+	// may contain out-of-date information. Convert AP model to our GTS model.
+	latestStatus, err := d.converter.ASStatusToStatus(ctx, statusable)
 	if err != nil {
 		return nil, nil, gtserror.Newf("error converting statusable to gts model for status %s: %w", uri, err)
 	}
@@ -468,13 +474,26 @@ func (d *Dereferencer) enrichStatus(
 		)
 	}
 
-	// Ensure the final parsed status URI / URL matches
+	// Ensure the final parsed status URI or URL matches
 	// the input URI we fetched (or received) it as.
-	if expect := uri.String(); latestStatus.URI != expect &&
-		latestStatus.URL != expect {
+	matches, err := util.URIMatches(
+		uri,
+		append(
+			ap.GetURL(statusable),      // status URL(s)
+			ap.GetJSONLDId(statusable), // status URI
+		)...,
+	)
+	if err != nil {
+		return nil, nil, gtserror.Newf(
+			"error checking dereferenced status uri %s: %w",
+			latestStatus.URI, err,
+		)
+	}
+
+	if !matches {
 		return nil, nil, gtserror.Newf(
 			"dereferenced status uri %s does not match %s",
-			latestStatus.URI, expect,
+			latestStatus.URI, uri.String(),
 		)
 	}
 
@@ -497,13 +516,30 @@ func (d *Dereferencer) enrichStatus(
 		latestStatus.ID = status.ID
 	}
 
-	// Carry-over values and set fetch time.
-	latestStatus.UpdatedAt = status.UpdatedAt
+	// Set latest fetch time and carry-
+	// over some values from "old" status.
 	latestStatus.FetchedAt = time.Now()
+	latestStatus.UpdatedAt = status.UpdatedAt
 	latestStatus.Local = status.Local
+	latestStatus.PinnedAt = status.PinnedAt
+
+	// Carry-over approvals. Remote instances might not yet
+	// serve statuses with the `approved_by` field, but we
+	// might have marked a status as pre-approved on our side
+	// based on the author's inclusion in a followers/following
+	// collection, or by providing pre-approval URI on the bare
+	// status passed to RefreshStatus. By carrying over previously
+	// set values we can avoid marking such statuses as "pending".
+	//
+	// If a remote has in the meantime retracted its approval,
+	// the next call to 'isPermittedStatus' will catch that.
+	if latestStatus.ApprovedByURI == "" && status.ApprovedByURI != "" {
+		latestStatus.ApprovedByURI = status.ApprovedByURI
+	}
 
 	// Check if this is a permitted status we should accept.
-	permit, err := d.isPermittedStatus(ctx, status, latestStatus)
+	// Function also sets "PendingApproval" bool as necessary.
+	permit, err := d.isPermittedStatus(ctx, requestUser, status, latestStatus)
 	if err != nil {
 		return nil, nil, gtserror.Newf("error checking permissibility for status %s: %w", uri, err)
 	}
@@ -536,12 +572,12 @@ func (d *Dereferencer) enrichStatus(
 	}
 
 	// Ensure the status' media attachments are populated, passing in existing to check for changes.
-	if err := d.FetchStatusAttachments(ctx, tsport, status, latestStatus); err != nil {
+	if err := d.fetchStatusAttachments(ctx, requestUser, status, latestStatus); err != nil {
 		return nil, nil, gtserror.Newf("error populating attachments for status %s: %w", uri, err)
 	}
 
-	// Ensure the status' emoji attachments are populated, (changes are expected / okay).
-	if err := d.fetchStatusEmojis(ctx, requestUser, latestStatus); err != nil {
+	// Ensure the status' emoji attachments are populated, passing in existing to check for changes.
+	if err := d.fetchStatusEmojis(ctx, status, latestStatus); err != nil {
 		return nil, nil, gtserror.Newf("error populating emojis for status %s: %w", uri, err)
 	}
 
@@ -558,164 +594,15 @@ func (d *Dereferencer) enrichStatus(
 		}
 	}
 
-	return latestStatus, apubStatus, nil
+	return latestStatus, statusable, nil
 }
 
-// isPermittedStatus returns whether the given status
-// is permitted to be stored on this instance, checking
-// whether the author is suspended, and passes visibility
-// checks against status being replied-to (if any).
-func (d *Dereferencer) isPermittedStatus(
+func (d *Dereferencer) fetchStatusMentions(
 	ctx context.Context,
+	requestUser string,
 	existing *gtsmodel.Status,
 	status *gtsmodel.Status,
-) (
-	permitted bool, // is permitted?
-	err error,
-) {
-
-	// our failure condition handling
-	// at the end of this function for
-	// the case of permission = false.
-	onFail := func() (bool, error) {
-		if existing != nil {
-			log.Infof(ctx, "deleting unpermitted: %s", existing.URI)
-
-			// Delete existing status from database as it's no longer permitted.
-			if err := d.state.DB.DeleteStatusByID(ctx, existing.ID); err != nil {
-				log.Errorf(ctx, "error deleting %s after permissivity fail: %v", existing.URI, err)
-			}
-		}
-		return false, nil
-	}
-
-	if !status.Account.SuspendedAt.IsZero() {
-		// The status author is suspended,
-		// this shouldn't have reached here
-		// but it's a fast check anyways.
-		return onFail()
-	}
-
-	if status.InReplyToURI == "" {
-		// This status isn't in
-		// reply to anything!
-		return true, nil
-	}
-
-	if status.InReplyTo == nil {
-		// If no inReplyTo has been set,
-		// we return here for now as we
-		// can't perform further checks.
-		//
-		// Worst case we allow something
-		// through, and later on during
-		// refetch it will get deleted.
-		return true, nil
-	}
-
-	if status.InReplyTo.BoostOfID != "" {
-		// We do not permit replies to
-		// boost wrapper statuses. (this
-		// shouldn't be able to happen).
-		return onFail()
-	}
-
-	// Default to true
-	permitted = true
-
-	if *status.InReplyTo.Local {
-		// Check visibility of inReplyTo to status author.
-		permitted, err = d.visibility.StatusVisible(ctx,
-			status.Account,
-			status.InReplyTo,
-		)
-		if err != nil {
-			return false, gtserror.Newf("error checking in-reply-to visibility: %w", err)
-		}
-	}
-
-	if permitted &&
-		*status.InReplyTo.Replyable {
-		// Status is reply-able to.
-		return true, nil
-	}
-
-	return onFail()
-}
-
-// populateMentionTarget tries to populate the given
-// mention with the correct TargetAccount and (if not
-// yet set) TargetAccountURI, returning the populated
-// mention.
-//
-// Will check on the existing status if the mention
-// is already there and populated; if so, existing
-// mention will be returned along with `true`.
-//
-// Otherwise, this function will try to parse first
-// the Href of the mention, and then the namestring,
-// to see who it targets, and go fetch that account.
-func (d *Dereferencer) populateMentionTarget(
-	ctx context.Context,
-	mention *gtsmodel.Mention,
-	requestUser string,
-	existing, status *gtsmodel.Status,
-) (
-	*gtsmodel.Mention,
-	bool, // True if mention already exists in the DB.
-	error,
-) {
-	// Mentions can be created using Name or Href.
-	// Prefer Href (TargetAccountURI), fall back to Name.
-	if mention.TargetAccountURI != "" {
-		// Look for existing mention with this URI.
-		// If we already have it we can return early.
-		existingMention, ok := existing.GetMentionByTargetURI(mention.TargetAccountURI)
-		if ok && existingMention.ID != "" {
-			return existingMention, true, nil
-		}
-
-		// Ensure that mention account URI is parseable.
-		accountURI, err := url.Parse(mention.TargetAccountURI)
-		if err != nil {
-			err = gtserror.Newf("invalid account uri %q: %w", mention.TargetAccountURI, err)
-			return nil, false, err
-		}
-
-		// Ensure we have the account of the mention target dereferenced.
-		mention.TargetAccount, _, err = d.getAccountByURI(ctx, requestUser, accountURI)
-		if err != nil {
-			err = gtserror.Newf("failed to dereference account %s: %w", accountURI, err)
-			return nil, false, err
-		}
-	} else {
-		// Href wasn't set. Find the target account using namestring.
-		username, domain, err := util.ExtractNamestringParts(mention.NameString)
-		if err != nil {
-			err = gtserror.Newf("failed to parse namestring %s: %w", mention.NameString, err)
-			return nil, false, err
-		}
-
-		mention.TargetAccount, _, err = d.getAccountByUsernameDomain(ctx, requestUser, username, domain)
-		if err != nil {
-			err = gtserror.Newf("failed to dereference account %s: %w", mention.NameString, err)
-			return nil, false, err
-		}
-
-		// Look for existing mention with this URI.
-		mention.TargetAccountURI = mention.TargetAccount.URI
-		existingMention, ok := existing.GetMentionByTargetURI(mention.TargetAccountURI)
-		if ok && existingMention.ID != "" {
-			return existingMention, true, nil
-		}
-	}
-
-	// At this point, mention.TargetAccountURI
-	// and mention.TargetAccount must be set.
-	return mention, false, nil
-}
-
-func (d *Dereferencer) fetchStatusMentions(ctx context.Context, requestUser string, existing, status *gtsmodel.Status) error {
+) error {
 	// Allocate new slice to take the yet-to-be created mention IDs.
 	status.MentionIDs = make([]string, len(status.Mentions))
 
@@ -726,12 +613,12 @@ func (d *Dereferencer) fetchStatusMentions(ctx context.Context, requestUser stri
 			err           error
 		)
 
-		mention, alreadyExists, err = d.populateMentionTarget(
-			ctx,
-			mention,
+		// Search existing status for a mention already stored,
+		// else ensure new mention's target account is populated.
+		mention, alreadyExists, err = d.getPopulatedMention(ctx,
 			requestUser,
 			existing,
-			status,
+			mention,
 		)
 		if err != nil {
 			log.Errorf(ctx, "failed to derive mention: %v", err)
@@ -845,7 +732,11 @@ func (d *Dereferencer) threadStatus(ctx context.Context, status *gtsmodel.Status
 	return nil
 }
 
-func (d *Dereferencer) fetchStatusTags(ctx context.Context, existing, status *gtsmodel.Status) error {
+func (d *Dereferencer) fetchStatusTags(
+	ctx context.Context,
+	existing *gtsmodel.Status,
+	status *gtsmodel.Status,
+) error {
 	// Allocate new slice to take the yet-to-be determined tag IDs.
 	status.TagIDs = make([]string, len(status.Tags))
 
@@ -900,7 +791,11 @@ func (d *Dereferencer) fetchStatusTags(ctx context.Context, existing, status *gt
 	return nil
 }
 
-func (d *Dereferencer) fetchStatusPoll(ctx context.Context, existing, status *gtsmodel.Status) error {
+func (d *Dereferencer) fetchStatusPoll(
+	ctx context.Context,
+	existing *gtsmodel.Status,
+	status *gtsmodel.Status,
+) error {
 	var (
 		// insertStatusPoll generates ID and inserts the poll attached to status into the database.
 		insertStatusPoll = func(ctx context.Context, status *gtsmodel.Status) error {
@@ -933,9 +828,6 @@ func (d *Dereferencer) fetchStatusPoll(ctx context.Context, existing, status *gt
 		deleteStatusPoll = func(ctx context.Context, pollID string) error {
 			if err := d.state.DB.DeletePollByID(ctx, pollID); err != nil {
 				return gtserror.Newf("error deleting existing poll from database: %w", err)
-			}
-			if err := d.state.DB.DeletePollVotes(ctx, pollID); err != nil {
-				return gtserror.Newf("error deleting existing votes from database: %w", err)
 			}
 			return nil
 		}
@@ -990,19 +882,24 @@ func (d *Dereferencer) fetchStatusPoll(ctx context.Context, existing, status *gt
 	}
 }
 
-func (d *Dereferencer) FetchStatusAttachments(ctx context.Context, tsport transport.Transport, existing, status *gtsmodel.Status) error {
+func (d *Dereferencer) fetchStatusAttachments(
+	ctx context.Context,
+	requestUser string,
+	existing *gtsmodel.Status,
+	status *gtsmodel.Status,
+) error {
 	// Allocate new slice to take the yet-to-be fetched attachment IDs.
 	status.AttachmentIDs = make([]string, len(status.Attachments))
 
 	for i := range status.Attachments {
-		attachment := status.Attachments[i]
+		placeholder := status.Attachments[i]
 
 		// Look for existing media attachment with remote URL first.
-		existing, ok := existing.GetAttachmentByRemoteURL(attachment.RemoteURL)
+		existing, ok := existing.GetAttachmentByRemoteURL(placeholder.RemoteURL)
 		if ok && existing.ID != "" {
 
 			// Ensure the existing media attachment is up-to-date and cached.
-			existing, err := d.updateAttachment(ctx, tsport, existing, attachment)
+			existing, err := d.updateAttachment(ctx, requestUser, existing, placeholder)
 			if err != nil {
 				log.Errorf(ctx, "error updating existing attachment: %v", err)
 
@@ -1019,25 +916,25 @@ func (d *Dereferencer) FetchStatusAttachments(ctx context.Context, tsport transp
 		}
 
 		// Load this new media attachment.
-		attachment, err := d.loadAttachment(
+		attachment, err := d.GetMedia(
 			ctx,
-			tsport,
+			requestUser,
 			status.AccountID,
-			attachment.RemoteURL,
-			&media.AdditionalMediaInfo{
+			placeholder.RemoteURL,
+			media.AdditionalMediaInfo{
 				StatusID:    &status.ID,
-				RemoteURL:   &attachment.RemoteURL,
-				Description: &attachment.Description,
-				Blurhash:    &attachment.Blurhash,
+				RemoteURL:   &placeholder.RemoteURL,
+				Description: &placeholder.Description,
+				Blurhash:    &placeholder.Blurhash,
 			},
 		)
-		if err != nil && attachment == nil {
-			log.Errorf(ctx, "error loading attachment: %v", err)
-			continue
-		}
-
 		if err != nil {
-			// A non-fatal error occurred during loading.
+			if attachment == nil {
+				log.Errorf(ctx, "error loading attachment %s: %v", placeholder.RemoteURL, err)
+				continue
+			}
+
+			// non-fatal error occurred during loading, still use it.
 			log.Warnf(ctx, "partially loaded attachment: %v", err)
 		}
 
@@ -1061,22 +958,121 @@ func (d *Dereferencer) FetchStatusAttachments(ctx context.Context, tsport transp
 	return nil
 }
 
-func (d *Dereferencer) fetchStatusEmojis(ctx context.Context, requestUser string, status *gtsmodel.Status) error {
-	// Fetch the full-fleshed-out emoji objects for our status.
-	emojis, err := d.populateEmojis(ctx, status.Emojis, requestUser)
+func (d *Dereferencer) fetchStatusEmojis(
+	ctx context.Context,
+	existing *gtsmodel.Status,
+	status *gtsmodel.Status,
+) error {
+	// Fetch the updated emojis for our status.
+	emojis, changed, err := d.fetchEmojis(ctx,
+		existing.Emojis,
+		status.Emojis,
+	)
 	if err != nil {
-		return gtserror.Newf("failed to populate emojis: %w", err)
+		return gtserror.Newf("error fetching emojis: %w", err)
 	}
 
-	// Iterate over and get their IDs.
-	emojiIDs := make([]string, 0, len(emojis))
-	for _, e := range emojis {
-		emojiIDs = append(emojiIDs, e.ID)
+	if !changed {
+		// Use existing status emoji objects.
+		status.EmojiIDs = existing.EmojiIDs
+		status.Emojis = existing.Emojis
+		return nil
 	}
 
-	// Set known emoji details.
+	// Set latest emojis.
 	status.Emojis = emojis
-	status.EmojiIDs = emojiIDs
+
+	// Iterate over and set changed emoji IDs.
+	status.EmojiIDs = make([]string, len(emojis))
+	for i, emoji := range emojis {
+		status.EmojiIDs[i] = emoji.ID
+	}
 
 	return nil
+}
+
+// getPopulatedMention tries to populate the given
+// mention with the correct TargetAccount and (if not
+// yet set) TargetAccountURI, returning the populated
+// mention.
+//
+// Will check on the existing status if the mention
+// is already there and populated; if so, existing
+// mention will be returned along with `true`.
+//
+// Otherwise, this function will try to parse first
+// the Href of the mention, and then the namestring,
+// to see who it targets, and go fetch that account.
+func (d *Dereferencer) getPopulatedMention(
+	ctx context.Context,
+	requestUser string,
+	existing *gtsmodel.Status,
+	mention *gtsmodel.Mention,
+) (
+	*gtsmodel.Mention,
+	bool, // True if mention already exists in the DB.
+	error,
+) {
+	// Mentions can be created using Name or Href.
+	// Prefer Href (TargetAccountURI), fall back to Name.
+	if mention.TargetAccountURI != "" {
+
+		// Look for existing mention with target account's URI, if so use this.
+		existingMention, ok := existing.GetMentionByTargetURI(mention.TargetAccountURI)
+		if ok && existingMention.ID != "" {
+			return existingMention, true, nil
+		}
+
+		// Ensure that mention account URI is parseable.
+		accountURI, err := url.Parse(mention.TargetAccountURI)
+		if err != nil {
+			err := gtserror.Newf("invalid account uri %q: %w", mention.TargetAccountURI, err)
+			return nil, false, err
+		}
+
+		// Ensure we have  account of the mention target dereferenced.
+		mention.TargetAccount, _, err = d.getAccountByURI(ctx,
+			requestUser,
+			accountURI,
+		)
+		if err != nil {
+			err := gtserror.Newf("failed to dereference account %s: %w", accountURI, err)
+			return nil, false, err
+		}
+	} else {
+
+		// Href wasn't set, extract the username and domain parts from namestring.
+		username, domain, err := util.ExtractNamestringParts(mention.NameString)
+		if err != nil {
+			err := gtserror.Newf("failed to parse namestring %s: %w", mention.NameString, err)
+			return nil, false, err
+		}
+
+		// Look for existing mention with username domain target, if so use this.
+		existingMention, ok := existing.GetMentionByUsernameDomain(username, domain)
+		if ok && existingMention.ID != "" {
+			return existingMention, true, nil
+		}
+
+		// Ensure we have the account of the mention target dereferenced.
+		mention.TargetAccount, _, err = d.getAccountByUsernameDomain(ctx,
+			requestUser,
+			username,
+			domain,
+		)
+		if err != nil {
+			err := gtserror.Newf("failed to dereference account %s: %w", mention.NameString, err)
+			return nil, false, err
+		}
+
+		// Look for existing mention with target account's URI, if so use this.
+		existingMention, ok = existing.GetMentionByTargetURI(mention.TargetAccountURI)
+		if ok && existingMention.ID != "" {
+			return existingMention, true, nil
+		}
+	}
+
+	// At this point, mention.TargetAccountURI
+	// and mention.TargetAccount must be set.
+	return mention, false, nil
 }

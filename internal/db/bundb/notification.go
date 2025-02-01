@@ -22,6 +22,7 @@ import (
 	"errors"
 	"slices"
 
+	"github.com/superseriousbusiness/gotosocial/internal/db"
 	"github.com/superseriousbusiness/gotosocial/internal/gtscontext"
 	"github.com/superseriousbusiness/gotosocial/internal/gtserror"
 	"github.com/superseriousbusiness/gotosocial/internal/gtsmodel"
@@ -76,7 +77,7 @@ func (n *notificationDB) GetNotification(
 
 func (n *notificationDB) getNotification(ctx context.Context, lookup string, dbQuery func(*gtsmodel.Notification) error, keyParts ...any) (*gtsmodel.Notification, error) {
 	// Fetch notification from cache with loader callback
-	notif, err := n.state.Caches.GTS.Notification.LoadOne(lookup, func() (*gtsmodel.Notification, error) {
+	notif, err := n.state.Caches.DB.Notification.LoadOne(lookup, func() (*gtsmodel.Notification, error) {
 		var notif gtsmodel.Notification
 
 		// Not cached! Perform database query
@@ -104,14 +105,9 @@ func (n *notificationDB) getNotification(ctx context.Context, lookup string, dbQ
 
 func (n *notificationDB) GetNotificationsByIDs(ctx context.Context, ids []string) ([]*gtsmodel.Notification, error) {
 	// Load all notif IDs via cache loader callbacks.
-	notifs, err := n.state.Caches.GTS.Notification.LoadIDs("ID",
+	notifs, err := n.state.Caches.DB.Notification.LoadIDs("ID",
 		ids,
 		func(uncached []string) ([]*gtsmodel.Notification, error) {
-			// Skip query if everything was cached.
-			if len(uncached) == 0 {
-				return nil, nil
-			}
-
 			// Preallocate expected length of uncached notifications.
 			notifs := make([]*gtsmodel.Notification, 0, len(uncached))
 
@@ -200,6 +196,7 @@ func (n *notificationDB) GetAccountNotifications(
 	sinceID string,
 	minID string,
 	limit int,
+	types []string,
 	excludeTypes []string,
 ) ([]*gtsmodel.Notification, error) {
 	// Ensure reasonable
@@ -237,9 +234,14 @@ func (n *notificationDB) GetAccountNotifications(
 		frontToBack = false // page up
 	}
 
-	for _, excludeType := range excludeTypes {
+	if len(types) > 0 {
+		// Include only requested notification types.
+		q = q.Where("? IN (?)", bun.Ident("notification.notification_type"), bun.In(types))
+	}
+
+	if len(excludeTypes) > 0 {
 		// Filter out unwanted notif types.
-		q = q.Where("? != ?", bun.Ident("notification.notification_type"), excludeType)
+		q = q.Where("? NOT IN (?)", bun.Ident("notification.notification_type"), bun.In(excludeTypes))
 	}
 
 	// Return only notifs for this account.
@@ -279,7 +281,7 @@ func (n *notificationDB) GetAccountNotifications(
 }
 
 func (n *notificationDB) PutNotification(ctx context.Context, notif *gtsmodel.Notification) error {
-	return n.state.Caches.GTS.Notification.Store(notif, func() error {
+	return n.state.Caches.DB.Notification.Store(notif, func() error {
 		_, err := n.db.NewInsert().Model(notif).Exec(ctx)
 		return err
 	})
@@ -291,18 +293,19 @@ func (n *notificationDB) DeleteNotificationByID(ctx context.Context, id string) 
 		NewDelete().
 		Table("notifications").
 		Where("? = ?", bun.Ident("id"), id).
-		Exec(ctx); err != nil {
+		Exec(ctx); err != nil &&
+		!errors.Is(err, db.ErrNoEntries) {
 		return err
 	}
 
 	// Invalidate deleted notification by ID.
-	n.state.Caches.GTS.Notification.Invalidate("ID", id)
+	n.state.Caches.DB.Notification.Invalidate("ID", id)
 	return nil
 }
 
 func (n *notificationDB) DeleteNotifications(ctx context.Context, types []string, targetAccountID string, originAccountID string) error {
 	if targetAccountID == "" && originAccountID == "" {
-		return errors.New("DeleteNotifications: one of targetAccountID or originAccountID must be set")
+		return gtserror.New("one of targetAccountID or originAccountID must be set")
 	}
 
 	q := n.db.
@@ -331,7 +334,7 @@ func (n *notificationDB) DeleteNotifications(ctx context.Context, types []string
 	}
 
 	// Invalidate all deleted notifications by IDs.
-	n.state.Caches.GTS.Notification.InvalidateIDs("ID", notifIDs)
+	n.state.Caches.DB.Notification.InvalidateIDs("ID", notifIDs)
 	return nil
 }
 
@@ -348,6 +351,6 @@ func (n *notificationDB) DeleteNotificationsForStatus(ctx context.Context, statu
 	}
 
 	// Invalidate all deleted notifications by IDs.
-	n.state.Caches.GTS.Notification.InvalidateIDs("ID", notifIDs)
+	n.state.Caches.DB.Notification.InvalidateIDs("ID", notifIDs)
 	return nil
 }

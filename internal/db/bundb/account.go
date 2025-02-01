@@ -61,7 +61,7 @@ func (a *accountDB) GetAccountByID(ctx context.Context, id string) (*gtsmodel.Ac
 
 func (a *accountDB) GetAccountsByIDs(ctx context.Context, ids []string) ([]*gtsmodel.Account, error) {
 	// Load all input account IDs via cache loader callback.
-	accounts, err := a.state.Caches.GTS.Account.LoadIDs("ID",
+	accounts, err := a.state.Caches.DB.Account.LoadIDs("ID",
 		ids,
 		func(uncached []string) ([]*gtsmodel.Account, error) {
 			// Preallocate expected length of uncached accounts.
@@ -587,7 +587,7 @@ func (a *accountDB) GetAccounts(
 
 func (a *accountDB) getAccount(ctx context.Context, lookup string, dbQuery func(*gtsmodel.Account) error, keyParts ...any) (*gtsmodel.Account, error) {
 	// Fetch account from database cache with loader callback
-	account, err := a.state.Caches.GTS.Account.LoadOne(lookup, func() (*gtsmodel.Account, error) {
+	account, err := a.state.Caches.DB.Account.LoadOne(lookup, func() (*gtsmodel.Account, error) {
 		var account gtsmodel.Account
 
 		// Not cached! Perform database query
@@ -712,18 +712,16 @@ func (a *accountDB) PopulateAccount(ctx context.Context, account *gtsmodel.Accou
 		}
 	}
 
-	if account.Stats == nil {
-		// Get / Create stats for this account.
-		if err := a.state.DB.PopulateAccountStats(ctx, account); err != nil {
-			errs.Appendf("error populating account stats: %w", err)
-		}
+	// Get / Create stats for this account (handles case of already set).
+	if err := a.state.DB.PopulateAccountStats(ctx, account); err != nil {
+		errs.Appendf("error populating account stats: %w", err)
 	}
 
 	return errs.Combine()
 }
 
 func (a *accountDB) PutAccount(ctx context.Context, account *gtsmodel.Account) error {
-	return a.state.Caches.GTS.Account.Store(account, func() error {
+	return a.state.Caches.DB.Account.Store(account, func() error {
 		// It is safe to run this database transaction within cache.Store
 		// as the cache does not attempt a mutex lock until AFTER hook.
 		//
@@ -752,7 +750,7 @@ func (a *accountDB) UpdateAccount(ctx context.Context, account *gtsmodel.Account
 		columns = append(columns, "updated_at")
 	}
 
-	return a.state.Caches.GTS.Account.Store(account, func() error {
+	return a.state.Caches.DB.Account.Store(account, func() error {
 		// It is safe to run this database transaction within cache.Store
 		// as the cache does not attempt a mutex lock until AFTER hook.
 		//
@@ -791,20 +789,14 @@ func (a *accountDB) UpdateAccount(ctx context.Context, account *gtsmodel.Account
 }
 
 func (a *accountDB) DeleteAccount(ctx context.Context, id string) error {
-	defer a.state.Caches.GTS.Account.Invalidate("ID", id)
+	// Gather necessary fields from
+	// deleted for cache invaliation.
+	var deleted gtsmodel.Account
+	deleted.ID = id
 
-	// Load account into cache before attempting a delete,
-	// as we need it cached in order to trigger the invalidate
-	// callback. This in turn invalidates others.
-	_, err := a.GetAccountByID(gtscontext.SetBarebones(ctx), id)
-	if err != nil && !errors.Is(err, db.ErrNoEntries) {
-		// NOTE: even if db.ErrNoEntries is returned, we
-		// still run the below transaction to ensure related
-		// objects are appropriately deleted.
-		return err
-	}
+	// Delete account from database and any related links in a transaction.
+	if err := a.db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
 
-	return a.db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
 		// clear out any emoji links
 		if _, err := tx.
 			NewDelete().
@@ -817,44 +809,19 @@ func (a *accountDB) DeleteAccount(ctx context.Context, id string) error {
 		// delete the account
 		_, err := tx.
 			NewDelete().
-			TableExpr("? AS ?", bun.Ident("accounts"), bun.Ident("account")).
-			Where("? = ?", bun.Ident("account.id"), id).
+			Model(&deleted).
+			Where("? = ?", bun.Ident("id"), id).
+			Returning("?", bun.Ident("uri")).
 			Exec(ctx)
 		return err
-	})
-}
-
-func (a *accountDB) SetAccountHeaderOrAvatar(ctx context.Context, mediaAttachment *gtsmodel.MediaAttachment, accountID string) error {
-	if *mediaAttachment.Avatar && *mediaAttachment.Header {
-		return errors.New("one media attachment cannot be both header and avatar")
-	}
-
-	var column bun.Ident
-	switch {
-	case *mediaAttachment.Avatar:
-		column = bun.Ident("account.avatar_media_attachment_id")
-	case *mediaAttachment.Header:
-		column = bun.Ident("account.header_media_attachment_id")
-	default:
-		return errors.New("given media attachment was neither a header nor an avatar")
-	}
-
-	// TODO: there are probably more side effects here that need to be handled
-	if _, err := a.db.
-		NewInsert().
-		Model(mediaAttachment).
-		Exec(ctx); err != nil {
+	}); err != nil {
 		return err
 	}
 
-	if _, err := a.db.
-		NewUpdate().
-		TableExpr("? AS ?", bun.Ident("accounts"), bun.Ident("account")).
-		Set("? = ?", column, mediaAttachment.ID).
-		Where("? = ?", bun.Ident("account.id"), accountID).
-		Exec(ctx); err != nil {
-		return err
-	}
+	// Invalidate cached account by its ID, manually
+	// call invalidate hook in case not cached.
+	a.state.Caches.DB.Account.Invalidate("ID", id)
+	a.state.Caches.OnInvalidateAccount(&deleted)
 
 	return nil
 }
@@ -1042,7 +1009,18 @@ func (a *accountDB) GetAccountPinnedStatuses(ctx context.Context, accountID stri
 	return a.state.DB.GetStatusesByIDs(ctx, statusIDs)
 }
 
-func (a *accountDB) GetAccountWebStatuses(ctx context.Context, accountID string, limit int, maxID string) ([]*gtsmodel.Status, error) {
+func (a *accountDB) GetAccountWebStatuses(
+	ctx context.Context,
+	account *gtsmodel.Account,
+	limit int,
+	maxID string,
+) ([]*gtsmodel.Status, error) {
+	// Check for an easy case: account exposes no statuses via the web.
+	webVisibility := account.Settings.WebVisibility
+	if webVisibility == gtsmodel.VisibilityNone {
+		return nil, db.ErrNoEntries
+	}
+
 	// Ensure reasonable
 	if limit < 0 {
 		limit = 0
@@ -1056,14 +1034,36 @@ func (a *accountDB) GetAccountWebStatuses(ctx context.Context, accountID string,
 		TableExpr("? AS ?", bun.Ident("statuses"), bun.Ident("status")).
 		// Select only IDs from table
 		Column("status.id").
-		Where("? = ?", bun.Ident("status.account_id"), accountID).
+		Where("? = ?", bun.Ident("status.account_id"), account.ID).
 		// Don't show replies or boosts.
 		Where("? IS NULL", bun.Ident("status.in_reply_to_uri")).
-		Where("? IS NULL", bun.Ident("status.boost_of_id")).
+		Where("? IS NULL", bun.Ident("status.boost_of_id"))
+
+	// Select statuses for this account according
+	// to their web visibility preference.
+	switch webVisibility {
+
+	case gtsmodel.VisibilityPublic:
 		// Only Public statuses.
-		Where("? = ?", bun.Ident("status.visibility"), gtsmodel.VisibilityPublic).
-		// Don't show local-only statuses on the web view.
-		Where("? = ?", bun.Ident("status.federated"), true)
+		q = q.Where("? = ?", bun.Ident("status.visibility"), gtsmodel.VisibilityPublic)
+
+	case gtsmodel.VisibilityUnlocked:
+		// Public or Unlocked.
+		visis := []gtsmodel.Visibility{
+			gtsmodel.VisibilityPublic,
+			gtsmodel.VisibilityUnlocked,
+		}
+		q = q.Where("? IN (?)", bun.Ident("status.visibility"), bun.In(visis))
+
+	default:
+		return nil, gtserror.Newf(
+			"unrecognized web visibility for account %s: %s",
+			account.ID, webVisibility,
+		)
+	}
+
+	// Don't show local-only statuses on the web view.
+	q = q.Where("? = ?", bun.Ident("status.federated"), true)
 
 	// return only statuses LOWER (ie., older) than maxID
 	if maxID == "" {
@@ -1099,7 +1099,7 @@ func (a *accountDB) GetAccountSettings(
 	accountID string,
 ) (*gtsmodel.AccountSettings, error) {
 	// Fetch settings from db cache with loader callback.
-	return a.state.Caches.GTS.AccountSettings.LoadOne(
+	return a.state.Caches.DB.AccountSettings.LoadOne(
 		"AccountID",
 		func() (*gtsmodel.AccountSettings, error) {
 			// Not cached! Perform database query.
@@ -1121,7 +1121,7 @@ func (a *accountDB) PutAccountSettings(
 	ctx context.Context,
 	settings *gtsmodel.AccountSettings,
 ) error {
-	return a.state.Caches.GTS.AccountSettings.Store(settings, func() error {
+	return a.state.Caches.DB.AccountSettings.Store(settings, func() error {
 		if _, err := a.db.
 			NewInsert().
 			Model(settings).
@@ -1138,12 +1138,32 @@ func (a *accountDB) UpdateAccountSettings(
 	settings *gtsmodel.AccountSettings,
 	columns ...string,
 ) error {
-	return a.state.Caches.GTS.AccountSettings.Store(settings, func() error {
+	return a.state.Caches.DB.AccountSettings.Store(settings, func() error {
 		settings.UpdatedAt = time.Now()
-		if len(columns) > 0 {
+
+		switch {
+
+		case len(columns) != 0:
 			// If we're updating by column,
 			// ensure "updated_at" is included.
 			columns = append(columns, "updated_at")
+
+			// If we're updating web_visibility we should
+			// fall through + invalidate visibility cache.
+			if !slices.Contains(columns, "web_visibility") {
+				break // No need to invalidate.
+			}
+
+			// Fallthrough
+			// to invalidate.
+			fallthrough
+
+		case len(columns) == 0:
+			// Status visibility may be changing for this account.
+			// Clear the visibility cache for unauthed requesters.
+			//
+			// todo: invalidate JUST this account's statuses.
+			defer a.state.Caches.Visibility.Clear()
 		}
 
 		if _, err := a.db.
@@ -1160,8 +1180,13 @@ func (a *accountDB) UpdateAccountSettings(
 }
 
 func (a *accountDB) PopulateAccountStats(ctx context.Context, account *gtsmodel.Account) error {
+	if account.Stats != nil {
+		// Already populated!
+		return nil
+	}
+
 	// Fetch stats from db cache with loader callback.
-	stats, err := a.state.Caches.GTS.AccountStats.LoadOne(
+	stats, err := a.state.Caches.DB.AccountStats.LoadOne(
 		"AccountID",
 		func() (*gtsmodel.AccountStats, error) {
 			// Not cached! Perform database query.
@@ -1230,7 +1255,7 @@ func (a *accountDB) StubAccountStats(ctx context.Context, account *gtsmodel.Acco
 
 	// Upsert this stats in case a race
 	// meant someone else inserted it first.
-	if err := a.state.Caches.GTS.AccountStats.Store(stats, func() error {
+	if err := a.state.Caches.DB.AccountStats.Store(stats, func() error {
 		if _, err := NewUpsert(a.db).
 			Model(stats).
 			Constraint("account_id").
@@ -1282,34 +1307,40 @@ func (a *accountDB) RegenerateAccountStats(ctx context.Context, account *gtsmode
 	if err := a.db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
 		var err error
 
-		// Scan database for account statuses.
+		// Scan database for account statuses, ignoring
+		// statuses that are currently pending approval.
 		statusesCount, err := tx.NewSelect().
-			Table("statuses").
-			Where("? = ?", bun.Ident("account_id"), account.ID).
+			TableExpr("? AS ?", bun.Ident("statuses"), bun.Ident("status")).
+			Where("? = ?", bun.Ident("status.account_id"), account.ID).
+			Where("NOT ? = ?", bun.Ident("status.pending_approval"), true).
 			Count(ctx)
 		if err != nil {
 			return err
 		}
 		stats.StatusesCount = &statusesCount
 
-		// Scan database for pinned statuses.
+		// Scan database for pinned statuses, ignoring
+		// statuses that are currently pending approval.
 		statusesPinnedCount, err := tx.NewSelect().
-			Table("statuses").
-			Where("? = ?", bun.Ident("account_id"), account.ID).
-			Where("? IS NOT NULL", bun.Ident("pinned_at")).
+			TableExpr("? AS ?", bun.Ident("statuses"), bun.Ident("status")).
+			Where("? = ?", bun.Ident("status.account_id"), account.ID).
+			Where("? IS NOT NULL", bun.Ident("status.pinned_at")).
+			Where("NOT ? = ?", bun.Ident("status.pending_approval"), true).
 			Count(ctx)
 		if err != nil {
 			return err
 		}
 		stats.StatusesPinnedCount = &statusesPinnedCount
 
-		// Scan database for last status.
+		// Scan database for last status, ignoring
+		// statuses that are currently pending approval.
 		lastStatusAt := time.Time{}
 		err = tx.
 			NewSelect().
 			TableExpr("? AS ?", bun.Ident("statuses"), bun.Ident("status")).
 			Column("status.created_at").
 			Where("? = ?", bun.Ident("status.account_id"), account.ID).
+			Where("NOT ? = ?", bun.Ident("status.pending_approval"), true).
 			Order("status.id DESC").
 			Limit(1).
 			Scan(ctx, &lastStatusAt)
@@ -1325,7 +1356,7 @@ func (a *accountDB) RegenerateAccountStats(ctx context.Context, account *gtsmode
 
 	// Upsert this stats in case a race
 	// meant someone else inserted it first.
-	if err := a.state.Caches.GTS.AccountStats.Store(stats, func() error {
+	if err := a.state.Caches.DB.AccountStats.Store(stats, func() error {
 		if _, err := NewUpsert(a.db).
 			Model(stats).
 			Constraint("account_id").
@@ -1342,7 +1373,7 @@ func (a *accountDB) RegenerateAccountStats(ctx context.Context, account *gtsmode
 }
 
 func (a *accountDB) UpdateAccountStats(ctx context.Context, stats *gtsmodel.AccountStats, columns ...string) error {
-	return a.state.Caches.GTS.AccountStats.Store(stats, func() error {
+	return a.state.Caches.DB.AccountStats.Store(stats, func() error {
 		if _, err := a.db.
 			NewUpdate().
 			Model(stats).
@@ -1357,7 +1388,7 @@ func (a *accountDB) UpdateAccountStats(ctx context.Context, stats *gtsmodel.Acco
 }
 
 func (a *accountDB) DeleteAccountStats(ctx context.Context, accountID string) error {
-	defer a.state.Caches.GTS.AccountStats.Invalidate("AccountID", accountID)
+	defer a.state.Caches.DB.AccountStats.Invalidate("AccountID", accountID)
 
 	if _, err := a.db.
 		NewDelete().

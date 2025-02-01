@@ -46,7 +46,7 @@ type AccountTestSuite struct {
 func (suite *AccountTestSuite) TestGetAccountStatuses() {
 	statuses, err := suite.db.GetAccountStatuses(context.Background(), suite.testAccounts["local_account_1"].ID, 20, false, false, "", "", false, false)
 	suite.NoError(err)
-	suite.Len(statuses, 7)
+	suite.Len(statuses, 8)
 }
 
 func (suite *AccountTestSuite) TestGetAccountStatusesPageDown() {
@@ -69,7 +69,7 @@ func (suite *AccountTestSuite) TestGetAccountStatusesPageDown() {
 	if err != nil {
 		suite.FailNow(err.Error())
 	}
-	suite.Len(statuses, 1)
+	suite.Len(statuses, 2)
 
 	// try to get the last page (should be empty)
 	statuses, err = suite.db.GetAccountStatuses(context.Background(), suite.testAccounts["local_account_1"].ID, 3, false, false, statuses[len(statuses)-1].ID, "", false, false)
@@ -86,7 +86,7 @@ func (suite *AccountTestSuite) TestGetAccountStatusesExcludeRepliesAndReblogs() 
 func (suite *AccountTestSuite) TestGetAccountStatusesExcludeRepliesAndReblogsPublicOnly() {
 	statuses, err := suite.db.GetAccountStatuses(context.Background(), suite.testAccounts["local_account_1"].ID, 20, true, true, "", "", false, true)
 	suite.NoError(err)
-	suite.Len(statuses, 2)
+	suite.Len(statuses, 3)
 }
 
 // populateTestStatus adds mandatory fields to a partially populated status.
@@ -114,15 +114,6 @@ func (suite *AccountTestSuite) populateTestStatus(testAccountKey string, status 
 	}
 	if status.Federated == nil {
 		status.Federated = util.Ptr(true)
-	}
-	if status.Boostable == nil {
-		status.Boostable = util.Ptr(true)
-	}
-	if status.Likeable == nil {
-		status.Likeable = util.Ptr(true)
-	}
-	if status.Replyable == nil {
-		status.Replyable = util.Ptr(true)
 	}
 
 	if inReplyTo != nil {
@@ -196,7 +187,7 @@ func (suite *AccountTestSuite) TestGetAccountStatusesExcludeRepliesExcludesSelfR
 func (suite *AccountTestSuite) TestGetAccountStatusesMediaOnly() {
 	statuses, err := suite.db.GetAccountStatuses(context.Background(), suite.testAccounts["local_account_1"].ID, 20, false, false, "", "", true, false)
 	suite.NoError(err)
-	suite.Len(statuses, 1)
+	suite.Len(statuses, 2)
 }
 
 func (suite *AccountTestSuite) TestGetAccountBy() {
@@ -751,6 +742,10 @@ func (suite *AccountTestSuite) TestAccountStatsAll() {
 		if err := suite.db.UpdateAccountStats(ctx, stats2, "regenerated_at"); err != nil {
 			suite.FailNow(err.Error())
 		}
+
+		// Nil out account stats to allow
+		// db to refetch + regenerate them.
+		account.Stats = nil
 
 		// Get stats for a third time, they
 		// should get regenerated now, but

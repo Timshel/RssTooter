@@ -343,7 +343,7 @@ section.with-sidebar > form {
 	
 	.labelinput .border {
 		border-radius: 0.2rem;
-		border: 0.15rem solid $border_accent;
+		border: 0.15rem solid $border-accent;
 		padding: 0.3rem;
 		display: flex;
 		flex-direction: column;
@@ -374,6 +374,21 @@ section.with-sidebar > form {
 		flex-wrap: wrap;
 		gap: 0.4rem;
 	}
+
+	.select-wrapper {
+		/*
+			Selects are normalized in base.css to not have a down arrow on the side.
+			Overcome this on settings panel forms by replacing the down arrow.
+		*/
+		position: relative;
+		&::after {
+			content: "▼";
+			font-size: 0.8rem;
+			top: 0.3rem;
+			right: 1rem;
+			position: absolute;
+		}
+	}
 }
 
 .form-flex {
@@ -400,12 +415,13 @@ section.with-sidebar > form {
 			width: 24rem;
 		}
 	}
-	
-	.file-input-with-image-description {
-		display: flex;
-		flex-direction: column;
-		justify-content: space-around;
-	}
+}
+
+.file-input-with-image-description {
+	display: flex;
+	flex-direction: column;
+	justify-content: space-around;
+	gap: 0.5rem;
 }
 
 /*
@@ -422,11 +438,18 @@ section.with-sidebar > form {
 }
 
 .user-profile {
+	.profile {
+		max-width: 42rem;
+	}
+
+	.file-input-with-image-description {
+		max-width: 100%;
+		width: 100%;
+	}
+	
 	.overview {
-		display: grid;
-		max-width: 60rem;
-		grid-template-columns: 70% 30%;
-		grid-template-rows: auto;
+		display: flex;
+		flex-direction: column;
 		gap: 1rem;
 
 		.files {
@@ -442,21 +465,33 @@ section.with-sidebar > form {
 		}
 	}
 
-	.fields {
-		display: flex;
-		flex-direction: column;
-		gap: 0.5rem;
-		
-		.entry {
-			display: flex;
-			gap: 0.5rem;
-		}
-	}
-
 	.theme, .form-field.radio {
 		display: flex;
 		flex-direction: column;
 		gap: 0.5rem;
+	}
+
+	fieldset {
+		margin: 0;
+		padding: 0.5rem 1rem 1rem 1rem;
+		max-width: fit-content;
+		border: 0.1rem solid var(--gray1);
+		border-radius: 0.1rem;
+
+		>legend {
+			font-weight: bold;
+		}
+
+		.fields {
+			display: flex;
+			flex-direction: column;
+			gap: 0.5rem;
+			
+			.entry {
+				display: flex;
+				gap: 0.5rem;
+			}
+		}
 	}
 }
 
@@ -566,6 +601,10 @@ span.form-info {
 	.filter {
 		display: flex;
 		gap: 0.5rem;
+
+		button {
+			width: 100%;
+		}
 	}
 
 	.entry {
@@ -864,6 +903,41 @@ button.with-padding {
 	padding: 0.5rem calc(0.5rem + $fa-fw);
 }
 
+.tab-buttons {
+	display: flex;
+	max-width: fit-content;
+	justify-content: space-between;
+	gap: 0.15rem;
+}
+
+button.tab-button {
+	border-top-left-radius: $br;
+	border-top-right-radius: $br;
+	border-bottom-left-radius: 0;
+	border-bottom-right-radius: 0;
+	box-shadow: none;
+	background: $blue1;
+
+	&:hover {
+		background: $button-hover-bg;
+	}
+
+	text-overflow: ellipsis;
+	overflow: hidden;
+	white-space: nowrap;
+
+	font-size: 1rem;
+
+	@media screen and (max-width: 20rem) {
+		font-size: 0.75rem;
+	}
+
+	&.active {
+		background: $button-bg;
+		cursor: default;
+	}
+}
+
 .loading-icon {
 	align-self: flex-start;
 }
@@ -1045,62 +1119,62 @@ button.with-padding {
 	}
 }
 
-.reports {
-	p {
-		margin: 0;
-	}
-
+.reports-view {
 	.report {
 		display: flex;
 		flex-direction: column;
+		flex-wrap: nowrap;
 		gap: 0.5rem;
-		margin: 0.5rem 0;
-
-		text-decoration: none;
 		color: $fg;
-
-		padding: 1rem;
-
-		border: none;
 		border-left: 0.3rem solid $border-accent;
 
-		.usernames {
-			line-height: 2rem;
-		}
+		.username-lozenge {
+			display: flex;
+			flex-wrap: nowrap;
+			height: 100%;
+			align-items: center;
+			padding-top: 0;
+			padding-bottom: 0;
 
-		.byline {
-			display: grid;
-			grid-template-columns: 1fr auto;
-			gap: 0.5rem;
-
-			.report-status {
-				color: $border-accent;
+			.fa {
+				flex-shrink: 0;
 			}
 		}
 
-		.details {
-			display: grid;
-			grid-template-columns: auto 1fr;
-			gap: 0.2rem 0.5rem;
-			padding: 0.5rem;
-
-			justify-items: start;
+		.report-byline {
+			max-width: fit-content;
 		}
 
-		h3 {
-			margin: 0;
+		.info-list {
+			border: none;
+
+			.info-list-entry {
+				background: none;
+				padding: 0;
+
+				.report-target .username-lozenge {
+					color: $bg;
+				}
+
+				.reported-by .username-lozenge {
+					color: $fg;
+					font-weight: initial;
+					border-radius: 0;
+					background: none;
+				}
+			}
 		}
 
 		&.resolved {
-			color: $fg-reduced;
-			border-left: 0.4rem solid $bg;
+			border-left: 0.3rem solid $list-entry-bg;
 
-			.byline .report-status {
+			.info-list,
+			.info-list .info-list-entry .reported-by .username-lozenge {
 				color: $fg-reduced;
 			}
-			
-			.user {
-				opacity: 0.8;
+
+			&:hover {
+				border-color: $fg-accent;
 			}
 		}
 
@@ -1109,70 +1183,40 @@ button.with-padding {
 			padding: 0;
 		}
 	}
+}
 
-	.report.detail {
-		display: flex;
-		flex-direction: column;
-		margin-top: 1rem;
-		gap: 1rem;
-
-		.info-block {
-			padding: 0.5rem;
-			background: $gray2;
+.report-detail {
+	.info-list {
+		
+		&.overview {
+			margin-top: 1rem;
 		}
 
-		.info {
-			display: block;
-		}
+		.username-lozenge {
+			display: flex;
+			flex-wrap: nowrap;
+			height: 100%;
+			align-items: center;
+			padding-top: 0;
+			padding-bottom: 0;
+			max-width: fit-content;
 
-		.reported-toots {
-			margin-top: 0.5rem;
-		}
-
-		.toot .toot-info {
-			padding: 0.5rem;
-			background: $toot-info-bg;
-
-			a {
-				color: $fg-reduced;
-			}
-
-			&:last-child {
-				border-bottom-left-radius: $br;
-				border-bottom-right-radius: $br;
+			.fa {
+				flex-shrink: 0;
 			}
 		}
 	}
-}
 
-.username-lozenge {
-	line-height: 1.3rem;
-	display: inline-block;
-	background: $fg-accent;
-	color: $bg;
-	border-radius: $br;
-	padding: 0.15rem;
-	font-weight: bold;
-	text-decoration: none;
-	
-	.acct {
-		word-break: break-all;
+	.report-statuses {
+		width: min(100%, 50rem);
+
+		.thread {
+			display: flex;
+			flex-direction: column;
+			gap: 2rem;
+			padding: 0;
+		}
 	}
-
-	&.suspended {
-		background: $bg-accent;
-		color: $fg;
-		text-decoration: line-through;
-	}
-
-	&.local {
-		background: $green1;
-	}
-}
-
-.spanlink {
-	cursor: pointer;
-	text-decoration: none;
 }
 
 .accounts-view {
@@ -1223,6 +1267,36 @@ button.with-padding {
 	}
 }
 
+.username-lozenge {
+	line-height: 1.3rem;
+	display: inline-block;
+	background: $fg-accent;
+	color: $bg;
+	border-radius: $br;
+	padding: 0.15rem;
+	font-weight: bold;
+	text-decoration: none;
+	
+	.acct {
+		word-break: break-all;
+	}
+
+	&.suspended {
+		background: $bg-accent;
+		color: $fg;
+		text-decoration: line-through;
+	}
+
+	&.local {
+		background: $green1;
+	}
+}
+
+.pseudolink {
+	cursor: pointer;
+	text-decoration: none;
+}
+
 .info-list {
 	border: 0.1rem solid $gray1;
 	display: flex;
@@ -1248,10 +1322,10 @@ button.with-padding {
 			word-break: break-word;
 		}
 
-		dt, dd {
+		dt, dd, span {
 			/*
 				Make sure any fa icons used in keys
-				or values are properly aligned.
+				or values etc. are properly aligned.
 			*/
 			.fa {
 				vertical-align: middle;
@@ -1364,6 +1438,140 @@ button.with-padding {
 		pre, code {
 			white-space: pre-wrap;
 		}
+	}
+}
+
+.interaction-default-settings {	
+	.interaction-policy-section {
+		padding: 1rem;
+		display: none;
+		
+		&.active {
+			display: flex;
+		}
+		
+		flex-direction: column;
+		gap: 1rem;
+		border: 0.15rem solid $input-border;
+
+		fieldset {
+			display: flex;
+			flex-direction: column;
+			gap: 0.5rem;
+
+			margin: 0;
+			padding: 0.5rem 1rem 1rem 1rem;
+
+			border: $boxshadow-border;
+			border-radius: 0.1rem;
+			box-shadow: $boxshadow;
+
+			>legend {
+				display: flex;
+				gap: 0.5rem;
+				align-items: center;
+				font-weight: bold;
+				font-size: large;
+			}
+
+			hr {
+				width: 100%;
+			}
+
+			.something-else {
+				display: flex;
+				flex-direction: column;
+				gap: 0.5rem;
+				margin-top: -0.3rem;
+			}
+		}
+	}
+}
+
+.export-data {
+	.export-buttons-wrapper {
+		display: grid;
+		max-width: fit-content;
+		gap: 0.5rem;
+
+		.stats-and-button {
+			display: grid;
+			grid-template-columns: 13rem 1fr;
+			align-items: center;
+			gap: 0.25rem;
+	
+			.mutation-button {
+				width: 100%;
+				overflow-x: hidden;
+	
+				button {
+					font-size: 1rem;
+					width: 100%;
+				}
+			}
+		}
+	
+		@media screen and (max-width: 35rem) {
+			gap: 1rem;
+			
+			.stats-and-button {
+				grid-template-columns: auto;
+			}
+		}
+	}
+}
+
+
+.interaction-requests-view {
+	.interaction-request {
+		display: flex;
+		flex-direction: column;
+		flex-wrap: nowrap;
+		gap: 0.5rem;
+		color: $fg;
+
+		.info-list {
+			border: none;
+
+			.info-list-entry {
+				grid-template-columns: max(20%, 8rem) 1fr;
+				background: none;
+				padding: 0;
+			}
+		}
+
+		.action-buttons {
+			display: flex;
+			gap: 0.5rem;
+			align-items: center;
+
+			> .mutation-button
+			> button {
+				font-size: 1rem;
+				line-height: 1rem;
+			}
+		}
+	}
+}
+
+.interaction-request-detail {
+	.overview {
+		margin-top: 1rem;
+	}
+
+	h2 {
+		font-size: 1rem;
+	}
+
+	.thread .status .status-info {
+		border-bottom-left-radius: $br;
+		border-bottom-right-radius: $br;
+	}
+
+	.action-buttons {
+		display: flex;
+		gap: 0.5rem;
+		align-items: center;
 	}
 }
 

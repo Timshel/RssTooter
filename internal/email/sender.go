@@ -71,16 +71,27 @@ func NewSender() (Sender, error) {
 		return nil, err
 	}
 
-	username := config.GetSMTPUsername()
-	password := config.GetSMTPPassword()
-	host := config.GetSMTPHost()
-	port := config.GetSMTPPort()
-	from := config.GetSMTPFrom()
+	var (
+		username  = config.GetSMTPUsername()
+		password  = config.GetSMTPPassword()
+		host      = config.GetSMTPHost()
+		port      = config.GetSMTPPort()
+		from      = config.GetSMTPFrom()
+		msgIDHost = config.GetHost()
+		smtpAuth  smtp.Auth
+	)
+
+	if username == "" || password == "" {
+		smtpAuth = nil
+	} else {
+		smtpAuth = smtp.PlainAuth("", username, password, host)
+	}
 
 	return &sender{
 		hostAddress: fmt.Sprintf("%s:%d", host, port),
 		from:        from,
-		auth:        smtp.PlainAuth("", username, password, host),
+		auth:        smtpAuth,
+		msgIDHost:   msgIDHost,
 		template:    t,
 	}, nil
 }
@@ -89,5 +100,6 @@ type sender struct {
 	hostAddress string
 	from        string
 	auth        smtp.Auth
+	msgIDHost   string
 	template    *template.Template
 }

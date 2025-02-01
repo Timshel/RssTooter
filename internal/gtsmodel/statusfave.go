@@ -31,4 +31,7 @@ type StatusFave struct {
 	StatusID        string    `bun:"type:CHAR(26),unique:statusfaveaccountstatus,nullzero,notnull"` // database id of the status that has been 'faved'
 	Status          *Status   `bun:"-"`                                                             // the faved status
 	URI             string    `bun:",nullzero,notnull,unique"`                                      // ActivityPub URI of this fave
+	PendingApproval *bool     `bun:",nullzero,notnull,default:false"`                               // If true then Like must be Approved by the like-ee before being fully distributed.
+	PreApproved     bool      `bun:"-"`                                                             // If true, then fave targets a status on our instance, has permission to do the interaction, and an Accept should be sent out for it immediately. Field not stored in the DB.
+	ApprovedByURI   string    `bun:",nullzero"`                                                     // URI of an Accept Activity that approves this Like.
 }

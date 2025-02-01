@@ -7,25 +7,42 @@
 ##### MEDIA CONFIG #####
 ########################
 
-# Config pertaining to media uploads (videos, image, image descriptions, emoji).
+# Config pertaining to media uploads (media, image descriptions, emoji).
 
-# Size. Maximum allowed image upload size in bytes.
-#
-# Raising this limit may cause other servers to not fetch media
-# attached to a post.
-#
-# Examples: [2097152, 10485760, 10MB, 10MiB]
-# Default: 10MiB (10485760 bytes)
-media-image-max-size: 10MiB
-
-# Size. Maximum allowed video upload size in bytes.
+# Size. Max size in bytes of media uploads via API.
 #
 # Raising this limit may cause other servers to not fetch media
 # attached to a post.
 #
 # Examples: [2097152, 10485760, 40MB, 40MiB]
 # Default: 40MiB (41943040 bytes)
-media-video-max-size: 40MiB
+media-local-max-size: 40MiB
+
+# Size. Size in bytes of max image size referred to on /api/v_/instance endpoints,
+# used by applications like Tusky to automatically scale locally uploaded media.
+#
+# Leaving this unset will default to media-local-max-size.
+#
+# Examples: [64, 500, 5MiB, 5MB, 50M]
+# Default: unset
+media-image-size-hint: 5MiB
+
+# Size. Size in bytes of max video size referred to on /api/v_/instance endpoints,
+# used by applications like Tusky to automatically scale locally uploaded media.
+#
+# Leaving this unset will default to media-local-max-size.
+#
+# Examples: [64, 4096, 4MiB, 4MB, 40M]
+# Default: unset
+media-video-size-hint: 40MiB
+
+# Size. Max size in bytes of media to download from other instances.
+#
+# Lowering this limit may cause your instance not to fetch post media.
+#
+# Examples: [2097152, 10485760, 40MB, 40MiB]
+# Default: 40MiB (41943040 bytes)
+media-remote-max-size: 40MiB
 
 # Int. Minimum amount of characters required as an image or video description.
 # Examples: [500, 1000, 1500]
@@ -56,6 +73,24 @@ media-emoji-local-max-size: 50KiB
 # Examples: [51200, 102400, 100KB, 100KiB]
 # Default: 100KiB (102400 bytes)
 media-emoji-remote-max-size: 100KiB
+
+# Int. Number of instances of ffmpeg+ffprobe to add to the media processing pool.
+#
+# Increasing this number will lead to faster concurrent media processing,
+# but at the cost of up to about 250MB of (spiking) memory usage per increment.
+#
+# You'll want to increase this number if you have RAM to spare, and/or if you're
+# hosting an instance for more than 50 or so people who post/view lots of media,
+# but you should leave it at 1 for single-user instances or when running GoToSocial
+# in a constrained (low-memory) environment.
+#
+# If you set this number to 0 or less, then instead of a fixed number of instances,
+# it will scale with GOMAXPROCS x 1, yielding (usually) one ffmpeg instance and one
+# ffprobe instance per CPU core on the host machine.
+#
+# Examples: [1, 2, -1, 8]
+# Default: 1
+media-ffmpeg-pool-size: 1
 
 # The below media cleanup settings allow admins to customize when and
 # how often media cleanup + prune jobs run, while being set to a fairly

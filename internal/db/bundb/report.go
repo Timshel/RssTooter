@@ -20,6 +20,7 @@ package bundb
 import (
 	"context"
 	"errors"
+	"slices"
 	"time"
 
 	"github.com/superseriousbusiness/gotosocial/internal/db"
@@ -27,6 +28,7 @@ import (
 	"github.com/superseriousbusiness/gotosocial/internal/gtserror"
 	"github.com/superseriousbusiness/gotosocial/internal/gtsmodel"
 	"github.com/superseriousbusiness/gotosocial/internal/log"
+	"github.com/superseriousbusiness/gotosocial/internal/paging"
 	"github.com/superseriousbusiness/gotosocial/internal/state"
 	"github.com/uptrace/bun"
 )
@@ -51,14 +53,23 @@ func (r *reportDB) GetReportByID(ctx context.Context, id string) (*gtsmodel.Repo
 	)
 }
 
-func (r *reportDB) GetReports(ctx context.Context, resolved *bool, accountID string, targetAccountID string, maxID string, sinceID string, minID string, limit int) ([]*gtsmodel.Report, error) {
-	reportIDs := []string{}
+func (r *reportDB) GetReports(ctx context.Context, resolved *bool, accountID string, targetAccountID string, page *paging.Page) ([]*gtsmodel.Report, error) {
+	var (
+		// Get paging params.
+		minID = page.GetMin()
+		maxID = page.GetMax()
+		limit = page.GetLimit()
+		order = page.GetOrder()
+
+		// Make educated guess for slice size
+		reportIDs = make([]string, 0, limit)
+	)
 
 	q := r.db.
 		NewSelect().
 		TableExpr("? AS ?", bun.Ident("reports"), bun.Ident("report")).
-		Column("report.id").
-		Order("report.id DESC")
+		// Select only IDs from table.
+		Column("report.id")
 
 	if resolved != nil {
 		i := bun.Ident("report.action_taken_by_account_id")
@@ -77,20 +88,30 @@ func (r *reportDB) GetReports(ctx context.Context, resolved *bool, accountID str
 		q = q.Where("? = ?", bun.Ident("report.target_account_id"), targetAccountID)
 	}
 
+	// Return only reports with id
+	// lower than provided maxID.
 	if maxID != "" {
 		q = q.Where("? < ?", bun.Ident("report.id"), maxID)
 	}
 
-	if sinceID != "" {
-		q = q.Where("? > ?", bun.Ident("report.id"), minID)
-	}
-
+	// Return only reports with id
+	// greater than provided minID.
 	if minID != "" {
 		q = q.Where("? > ?", bun.Ident("report.id"), minID)
 	}
 
-	if limit != 0 {
+	if limit > 0 {
+		// Limit amount of
+		// reports returned.
 		q = q.Limit(limit)
+	}
+
+	if order == paging.OrderAscending {
+		// Page up.
+		q = q.OrderExpr("? ASC", bun.Ident("report.id"))
+	} else {
+		// Page down.
+		q = q.OrderExpr("? DESC", bun.Ident("report.id"))
 	}
 
 	if err := q.Scan(ctx, &reportIDs); err != nil {
@@ -100,6 +121,12 @@ func (r *reportDB) GetReports(ctx context.Context, resolved *bool, accountID str
 	// Catch case of no reports early
 	if len(reportIDs) == 0 {
 		return nil, db.ErrNoEntries
+	}
+
+	// If we're paging up, we still want reports
+	// to be sorted by ID desc, so reverse ids slice.
+	if order == paging.OrderAscending {
+		slices.Reverse(reportIDs)
 	}
 
 	// Allocate return slice (will be at most len reportIDs)
@@ -120,7 +147,7 @@ func (r *reportDB) GetReports(ctx context.Context, resolved *bool, accountID str
 
 func (r *reportDB) getReport(ctx context.Context, lookup string, dbQuery func(*gtsmodel.Report) error, keyParts ...any) (*gtsmodel.Report, error) {
 	// Fetch report from database cache with loader callback
-	report, err := r.state.Caches.GTS.Report.LoadOne(lookup, func() (*gtsmodel.Report, error) {
+	report, err := r.state.Caches.DB.Report.LoadOne(lookup, func() (*gtsmodel.Report, error) {
 		var report gtsmodel.Report
 
 		// Not cached! Perform database query
@@ -215,51 +242,42 @@ func (r *reportDB) PopulateReport(ctx context.Context, report *gtsmodel.Report) 
 }
 
 func (r *reportDB) PutReport(ctx context.Context, report *gtsmodel.Report) error {
-	return r.state.Caches.GTS.Report.Store(report, func() error {
+	return r.state.Caches.DB.Report.Store(report, func() error {
 		_, err := r.db.NewInsert().Model(report).Exec(ctx)
 		return err
 	})
 }
 
-func (r *reportDB) UpdateReport(ctx context.Context, report *gtsmodel.Report, columns ...string) (*gtsmodel.Report, error) {
+func (r *reportDB) UpdateReport(ctx context.Context, report *gtsmodel.Report, columns ...string) error {
 	// Update the report's last-updated
 	report.UpdatedAt = time.Now()
 	if len(columns) != 0 {
 		columns = append(columns, "updated_at")
 	}
 
-	if _, err := r.db.
-		NewUpdate().
-		Model(report).
-		Where("? = ?", bun.Ident("report.id"), report.ID).
-		Column(columns...).
-		Exec(ctx); err != nil {
-		return nil, err
-	}
-
-	r.state.Caches.GTS.Report.Invalidate("ID", report.ID)
-	return report, nil
+	return r.state.Caches.DB.Report.Store(report, func() error {
+		_, err := r.db.
+			NewUpdate().
+			Model(report).
+			Where("? = ?", bun.Ident("report.id"), report.ID).
+			Column(columns...).
+			Exec(ctx)
+		return err
+	})
 }
 
 func (r *reportDB) DeleteReportByID(ctx context.Context, id string) error {
-	defer r.state.Caches.GTS.Report.Invalidate("ID", id)
-
-	// Load status into cache before attempting a delete,
-	// as we need it cached in order to trigger the invalidate
-	// callback. This in turn invalidates others.
-	_, err := r.GetReportByID(gtscontext.SetBarebones(ctx), id)
-	if err != nil {
-		if errors.Is(err, db.ErrNoEntries) {
-			// not an issue.
-			err = nil
-		}
+	// Delete the report from DB.
+	if _, err := r.db.NewDelete().
+		TableExpr("? AS ?", bun.Ident("reports"), bun.Ident("report")).
+		Where("? = ?", bun.Ident("report.id"), id).
+		Exec(ctx); err != nil &&
+		!errors.Is(err, db.ErrNoEntries) {
 		return err
 	}
 
-	// Finally delete report from DB.
-	_, err = r.db.NewDelete().
-		TableExpr("? AS ?", bun.Ident("reports"), bun.Ident("report")).
-		Where("? = ?", bun.Ident("report.id"), id).
-		Exec(ctx)
-	return err
+	// Invalidate any cached report model by ID.
+	r.state.Caches.DB.Report.Invalidate("ID", id)
+
+	return nil
 }

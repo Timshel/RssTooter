@@ -19,6 +19,7 @@ package httpclient
 
 import (
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/superseriousbusiness/gotosocial/internal/log"
@@ -32,6 +33,7 @@ const (
 // Request wraps an HTTP request
 // to add our own retry / backoff.
 type Request struct {
+
 	// Current backoff dur.
 	backoff time.Duration
 
@@ -47,8 +49,8 @@ type Request struct {
 
 // WrapRequest wraps an existing http.Request within
 // our own httpclient.Request with retry / backoff tracking.
-func WrapRequest(r *http.Request) Request {
-	var rr Request
+func WrapRequest(r *http.Request) *Request {
+	rr := new(Request)
 	rr.Request = r
 	entry := log.WithContext(r.Context())
 	entry = entry.WithField("method", r.Method)
@@ -57,8 +59,7 @@ func WrapRequest(r *http.Request) Request {
 		// Only add content-type header if a request body exists.
 		entry = entry.WithField("contentType", r.Header.Get("Content-Type"))
 	}
-	// note our formatting library follows ptr values
-	entry = entry.WithField("attempt", &rr.attempts)
+	entry = entry.WithField("attempt", uintPtr{&rr.attempts})
 	rr.Entry = entry
 	return rr
 }
@@ -72,4 +73,13 @@ func (r *Request) BackOff() time.Duration {
 		r.backoff = baseBackoff * 1 << (r.attempts + 1)
 	}
 	return r.backoff
+}
+
+type uintPtr struct{ u *uint }
+
+func (f uintPtr) String() string {
+	if f.u == nil {
+		return "<nil>"
+	}
+	return strconv.FormatUint(uint64(*f.u), 10)
 }

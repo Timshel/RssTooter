@@ -373,24 +373,23 @@ func (suite *MediaTestSuite) TestUncacheAndRecache() {
 	suite.True(storage.IsNotFound(err))
 
 	// now recache the image....
-	data := func(_ context.Context) (io.ReadCloser, int64, error) {
+	data := func(_ context.Context) (io.ReadCloser, error) {
 		// load bytes from a test image
 		b, err := os.ReadFile("../../testrig/media/thoughtsofdog-original.jpg")
 		if err != nil {
 			panic(err)
 		}
-		return io.NopCloser(bytes.NewBuffer(b)), int64(len(b)), nil
+		return io.NopCloser(bytes.NewBuffer(b)), nil
 	}
 
 	for _, original := range []*gtsmodel.MediaAttachment{
 		testStatusAttachment,
 		testHeader,
 	} {
-		processingRecache, err := suite.manager.PreProcessMediaRecache(ctx, data, original.ID)
-		suite.NoError(err)
+		processing := suite.manager.CacheMedia(original, data)
 
 		// synchronously load the recached attachment
-		recachedAttachment, err := processingRecache.LoadAttachment(ctx)
+		recachedAttachment, err := processing.Load(ctx)
 		suite.NoError(err)
 		suite.NotNil(recachedAttachment)
 

@@ -24,6 +24,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"runtime"
 	"strings"
 	"syscall"
 	"time"
@@ -34,9 +35,11 @@ import (
 	"github.com/superseriousbusiness/gotosocial/internal/api"
 	apiutil "github.com/superseriousbusiness/gotosocial/internal/api/util"
 	"github.com/superseriousbusiness/gotosocial/internal/cleaner"
+	"github.com/superseriousbusiness/gotosocial/internal/filter/interaction"
 	"github.com/superseriousbusiness/gotosocial/internal/filter/spam"
 	"github.com/superseriousbusiness/gotosocial/internal/filter/visibility"
 	"github.com/superseriousbusiness/gotosocial/internal/gtserror"
+	"github.com/superseriousbusiness/gotosocial/internal/media/ffmpeg"
 	"github.com/superseriousbusiness/gotosocial/internal/messages"
 	"github.com/superseriousbusiness/gotosocial/internal/metrics"
 	"github.com/superseriousbusiness/gotosocial/internal/middleware"
@@ -67,15 +70,9 @@ import (
 
 // Start creates and starts a gotosocial server
 var Start action.GTSAction = func(ctx context.Context) error {
-	if _, err := maxprocs.Set(maxprocs.Logger(nil)); err != nil {
-		log.Warnf(ctx, "could not set CPU limits from cgroup: %s", err)
-	}
-
-	if _, err := memlimit.SetGoMemLimitWithOpts(); err != nil {
-		if !strings.Contains(err.Error(), "cgroup mountpoint does not exist") {
-			log.Warnf(ctx, "could not set Memory limits from cgroup: %s", err)
-		}
-	}
+	// Set GOMAXPROCS / GOMEMLIMIT
+	// to match container limits.
+	setLimits(ctx)
 
 	var (
 		// Define necessary core variables
@@ -83,9 +80,9 @@ var Start action.GTSAction = func(ctx context.Context) error {
 		// defer function for safe shutdown
 		// depending on what services were
 		// managed to be started.
-
-		state = new(state.State)
-		route *router.Router
+		state   = new(state.State)
+		route   *router.Router
+		process *processing.Processor
 	)
 
 	defer func() {
@@ -118,6 +115,23 @@ var Start action.GTSAction = func(ctx context.Context) error {
 			// List timeline mgr was setup, ensure it gets stopped.
 			if err := state.Timelines.List.Stop(); err != nil {
 				log.Errorf(ctx, "error stopping list timeline: %v", err)
+			}
+		}
+
+		if process != nil {
+			const timeout = time.Minute
+
+			// Use a new timeout context to ensure
+			// persisting queued tasks does not fail!
+			// The main ctx is very likely canceled.
+			ctx := context.WithoutCancel(ctx)
+			ctx, cncl := context.WithTimeout(ctx, timeout)
+			defer cncl()
+
+			// Now that all the "moving" components have been stopped,
+			// persist any remaining queued worker tasks to the database.
+			if err := process.Admin().PersistWorkerQueues(ctx); err != nil {
+				log.Errorf(ctx, "error persisting worker queues: %v", err)
 			}
 		}
 
@@ -182,15 +196,35 @@ var Start action.GTSAction = func(ctx context.Context) error {
 		TLSInsecureSkipVerify: config.GetHTTPClientTLSInsecureSkipVerify(),
 	})
 
+	// Compile WASM modules ahead of first use
+	// to prevent unexpected initial slowdowns.
+	//
+	// Note that this can take a bit of memory
+	// and processing so we perform this much
+	// later after any database migrations.
+	log.Info(ctx, "compiling WebAssembly")
+	if err := compileWASM(ctx); err != nil {
+		return err
+	}
+
 	// Build handlers used in later initializations.
 	mediaManager := media.NewManager(state)
 	oauthServer := oauth.New(ctx, dbService)
 	typeConverter := typeutils.NewConverter(state)
 	visFilter := visibility.NewFilter(state)
+	intFilter := interaction.NewFilter(state)
 	spamFilter := spam.NewFilter(state)
-	federatingDB := federatingdb.New(state, typeConverter, visFilter, spamFilter)
+	federatingDB := federatingdb.New(state, typeConverter, visFilter, intFilter, spamFilter)
 	transportController := transport.NewController(state, federatingDB, &federation.Clock{}, client)
-	federator := federation.NewFederator(state, federatingDB, transportController, typeConverter, visFilter, mediaManager)
+	federator := federation.NewFederator(
+		state,
+		federatingDB,
+		transportController,
+		typeConverter,
+		visFilter,
+		intFilter,
+		mediaManager,
+	)
 
 	// Decide whether to create a noop email
 	// sender (won't send emails) or a real one.
@@ -257,7 +291,7 @@ var Start action.GTSAction = func(ctx context.Context) error {
 
 	// Create the processor using all the
 	// other services we've created so far.
-	processor := processing.NewProcessor(
+	process = processing.NewProcessor(
 		cleaner,
 		typeConverter,
 		federator,
@@ -265,26 +299,33 @@ var Start action.GTSAction = func(ctx context.Context) error {
 		mediaManager,
 		state,
 		emailSender,
+		visFilter,
+		intFilter,
 	)
 
 	// Initialize the specialized workers pools.
 	state.Workers.Client.Init(messages.ClientMsgIndices())
 	state.Workers.Federator.Init(messages.FederatorMsgIndices())
 	state.Workers.Delivery.Init(client)
-	state.Workers.Client.Process = processor.Workers().ProcessFromClientAPI
-	state.Workers.Federator.Process = processor.Workers().ProcessFromFediAPI
+	state.Workers.Client.Process = process.Workers().ProcessFromClientAPI
+	state.Workers.Federator.Process = process.Workers().ProcessFromFediAPI
 
 	// Now start workers!
 	state.Workers.Start()
 
 	// Schedule notif tasks for all existing poll expiries.
-	if err := processor.Polls().ScheduleAll(ctx); err != nil {
+	if err := process.Polls().ScheduleAll(ctx); err != nil {
 		return fmt.Errorf("error scheduling poll expiries: %w", err)
 	}
 
 	// Initialize metrics.
 	if err := metrics.Initialize(state.DB); err != nil {
 		return fmt.Errorf("error initializing metrics: %w", err)
+	}
+
+	// Run advanced migrations.
+	if err := process.AdvancedMigrations().Migrate(ctx); err != nil {
+		return err
 	}
 
 	/*
@@ -339,7 +380,7 @@ var Start action.GTSAction = func(ctx context.Context) error {
 	}
 
 	// create and start the proxy using the other services we've created so far
-	rssTooter := rss.NewRssTooter(ctx, state, mediaManager, transportController, typeConverter, visFilter)
+	rssTooter := rss.NewRssTooter(ctx, state, mediaManager, transportController, typeConverter, visFilter, intFilter)
 	if err := rssTooter.Start(); err != nil {
 		return fmt.Errorf("error starting rssTooter: %s", err)
 	}
@@ -355,7 +396,7 @@ var Start action.GTSAction = func(ctx context.Context) error {
 
 	// attach global no route / 404 handler to the router
 	route.AttachNoRouteHandler(func(c *gin.Context) {
-		apiutil.ErrorHandler(c, gtserror.NewErrorNotFound(errors.New(http.StatusText(http.StatusNotFound))), processor.InstanceGetV1)
+		apiutil.ErrorHandler(c, gtserror.NewErrorNotFound(errors.New(http.StatusText(http.StatusNotFound))), process.InstanceGetV1)
 	})
 
 	// build router modules
@@ -378,15 +419,15 @@ var Start action.GTSAction = func(ctx context.Context) error {
 	}
 
 	var (
-		authModule        = api.NewAuth(dbService, processor, idp, routerSession, sessionName) // auth/oauth paths
-		clientModule      = api.NewClient(state, processor)                                    // api client endpoints
-		metricsModule     = api.NewMetrics()                                                   // Metrics endpoints
-		healthModule      = api.NewHealth(dbService.Ready)                                     // Health check endpoints
-		fileserverModule  = api.NewFileserver(processor)                                       // fileserver endpoints
-		wellKnownModule   = api.NewWellKnown(rssTooter, processor)                             // .well-known endpoints
-		nodeInfoModule    = api.NewNodeInfo(processor)                                         // nodeinfo endpoint
-		activityPubModule = api.NewActivityPub(dbService, processor)                           // ActivityPub endpoints
-		webModule         = web.New(dbService, processor)                                      // web pages + user profiles + settings panels etc
+		authModule        = api.NewAuth(dbService, process, idp, routerSession, sessionName) // auth/oauth paths
+		clientModule      = api.NewClient(state, process)                                    // api client endpoints
+		metricsModule     = api.NewMetrics()                                                 // Metrics endpoints
+		healthModule      = api.NewHealth(dbService.Ready)                                   // Health check endpoints
+		fileserverModule  = api.NewFileserver(process)                            					 // fileserver endpoints
+		wellKnownModule   = api.NewWellKnown(rssTooter, process)                             // .well-known endpoints
+		nodeInfoModule    = api.NewNodeInfo(process)                                         // nodeinfo endpoint
+		activityPubModule = api.NewActivityPub(dbService, process)                           // ActivityPub endpoints
+		webModule         = web.New(dbService, process)                                      // web pages + user profiles + settings panels etc
 	)
 
 	// create required middleware
@@ -401,18 +442,24 @@ var Start action.GTSAction = func(ctx context.Context) error {
 	// throttling
 	cpuMultiplier := config.GetAdvancedThrottlingMultiplier()
 	retryAfter := config.GetAdvancedThrottlingRetryAfter()
-	clThrottle := middleware.Throttle(cpuMultiplier, retryAfter)  // client api
-	s2sThrottle := middleware.Throttle(cpuMultiplier, retryAfter) // server-to-server (AP)
-	fsThrottle := middleware.Throttle(cpuMultiplier, retryAfter)  // fileserver / web templates / emojis
-	pkThrottle := middleware.Throttle(cpuMultiplier, retryAfter)  // throttle public key endpoint separately
+	clThrottle := middleware.Throttle(cpuMultiplier, retryAfter) // client api
+	s2sThrottle := middleware.Throttle(cpuMultiplier, retryAfter)
+	// server-to-server (AP)
+	fsThrottle := middleware.Throttle(cpuMultiplier, retryAfter) // fileserver / web templates / emojis
+	pkThrottle := middleware.Throttle(cpuMultiplier, retryAfter) // throttle public key endpoint separately
 
-	gzip := middleware.Gzip() // applied to all except fileserver
+	// Gzip middleware is applied to all endpoints except
+	// fileserver (compression too expensive for those),
+	// health (which really doesn't need compression), and
+	// metrics (which does its own compression handling that
+	// is rather annoying to neatly override).
+	gzip := middleware.Gzip()
 
 	// these should be routed in order;
 	// apply throttling *after* rate limiting
 	authModule.Route(route, clLimit, clThrottle, gzip)
 	clientModule.Route(route, clLimit, clThrottle, gzip)
-	metricsModule.Route(route, clLimit, clThrottle, gzip)
+	metricsModule.Route(route, clLimit, clThrottle)
 	healthModule.Route(route, clLimit, clThrottle)
 	fileserverModule.Route(route, fsMainLimit, fsThrottle)
 	fileserverModule.RouteEmojis(route, instanceAccount.ID, fsEmojiLimit, fsThrottle)
@@ -427,11 +474,47 @@ var Start action.GTSAction = func(ctx context.Context) error {
 		return fmt.Errorf("error starting router: %w", err)
 	}
 
+	// Fill worker queues from persisted task data in database.
+	if err := process.Admin().FillWorkerQueues(ctx); err != nil {
+		return fmt.Errorf("error filling worker queues: %w", err)
+	}
+
 	// catch shutdown signals from the operating system
 	sigs := make(chan os.Signal, 1)
 	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
 	sig := <-sigs // block until signal received
 	log.Infof(ctx, "received signal %s, shutting down", sig)
+
+	return nil
+}
+
+func setLimits(ctx context.Context) {
+	if _, err := maxprocs.Set(maxprocs.Logger(nil)); err != nil {
+		log.Warnf(ctx, "could not set CPU limits from cgroup: %s", err)
+	}
+
+	if _, err := memlimit.SetGoMemLimitWithOpts(); err != nil {
+		if !strings.Contains(err.Error(), "cgroup mountpoint does not exist") {
+			log.Warnf(ctx, "could not set Memory limits from cgroup: %s", err)
+		}
+	}
+}
+
+func compileWASM(ctx context.Context) error {
+	// Use admin-set ffmpeg pool size, and fall
+	// back to GOMAXPROCS if number 0 or less.
+	ffPoolSize := config.GetMediaFfmpegPoolSize()
+	if ffPoolSize <= 0 {
+		ffPoolSize = runtime.GOMAXPROCS(0)
+	}
+
+	if err := ffmpeg.InitFfmpeg(ctx, ffPoolSize); err != nil {
+		return gtserror.Newf("error compiling ffmpeg: %w", err)
+	}
+
+	if err := ffmpeg.InitFfprobe(ctx, ffPoolSize); err != nil {
+		return gtserror.Newf("error compiling ffprobe: %w", err)
+	}
 
 	return nil
 }

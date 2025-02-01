@@ -37,7 +37,8 @@ func (v *pngVisitor) split(data []byte, atEOF bool) (int, []byte, error) {
 		return advance, token, err
 	}
 
-	// if we haven't written anything at all yet, then write the png header back into the writer first
+	// if we haven't written anything at all yet, then
+	// write the png header back into the writer first
 	if v.lastWrittenChunk == -1 {
 		if _, err := v.writer.Write(pngstructure.PngSignature[:]); err != nil {
 			return advance, token, err
@@ -56,15 +57,21 @@ func (v *pngVisitor) split(data []byte, atEOF bool) (int, []byte, error) {
 	// which strips out exif and fixes
 	// the CRC of each chunk.
 	chunks := chunkSlice.Chunks()
-	for i, chunk := range chunks {
-		if i <= v.lastWrittenChunk {
-			// Skip already
-			// written chunks.
-			continue
+	for i := v.lastWrittenChunk + 1; i < len(chunks); i++ {
+		chunk := chunks[i]
+
+		if chunk.Type == pngstructure.EXifChunkType {
+			// Finally, some exif data! Terminate it!!
+			if err := terminateEXIF(chunkSlice); err != nil {
+				return advance, token, err
+			}
+
+			// Update chunk crc.
+			chunk.UpdateCrc32()
 		}
 
 		// Write this new chunk.
-		if err := v.writeChunk(chunk); err != nil {
+		if _, err := chunk.WriteTo(v.writer); err != nil {
 			return advance, token, err
 		}
 		v.lastWrittenChunk = i
@@ -75,19 +82,4 @@ func (v *pngVisitor) split(data []byte, atEOF bool) (int, []byte, error) {
 	}
 
 	return advance, token, err
-}
-
-func (v *pngVisitor) writeChunk(chunk *pngstructure.Chunk) error {
-	if chunk.Type == pngstructure.EXifChunkType {
-		// Replace exif data
-		// with zero bytes.
-		clear(chunk.Data)
-	}
-
-	// Fix CRC of each chunk.
-	chunk.UpdateCrc32()
-
-	// finally, write chunk to writer.
-	_, err := chunk.WriteTo(v.writer)
-	return err
 }

@@ -28,6 +28,7 @@ import (
 	"github.com/superseriousbusiness/gotosocial/internal/gtscontext"
 	"github.com/superseriousbusiness/gotosocial/internal/gtsmodel"
 	"github.com/superseriousbusiness/gotosocial/internal/processing/workers"
+	"github.com/superseriousbusiness/gotosocial/testrig"
 )
 
 type SurfaceNotifyTestSuite struct {
@@ -35,15 +36,16 @@ type SurfaceNotifyTestSuite struct {
 }
 
 func (suite *SurfaceNotifyTestSuite) TestSpamNotifs() {
-	testStructs := suite.SetupTestStructs()
-	defer suite.TearDownTestStructs(testStructs)
+	testStructs := testrig.SetupTestStructs(rMediaPath, rTemplatePath)
+	defer testrig.TearDownTestStructs(testStructs)
 
 	surface := &workers.Surface{
-		State:       testStructs.State,
-		Converter:   testStructs.TypeConverter,
-		Stream:      testStructs.Processor.Stream(),
-		Filter:      visibility.NewFilter(testStructs.State),
-		EmailSender: testStructs.EmailSender,
+		State:         testStructs.State,
+		Converter:     testStructs.TypeConverter,
+		Stream:        testStructs.Processor.Stream(),
+		VisFilter:     visibility.NewFilter(testStructs.State),
+		EmailSender:   testStructs.EmailSender,
+		Conversations: testStructs.Processor.Conversations(),
 	}
 
 	var (
@@ -87,7 +89,7 @@ func (suite *SurfaceNotifyTestSuite) TestSpamNotifs() {
 	notifs, err := testStructs.State.DB.GetAccountNotifications(
 		gtscontext.SetBarebones(ctx),
 		targetAccount.ID,
-		"", "", "", 0, nil,
+		"", "", "", 0, nil, nil,
 	)
 	if err != nil {
 		suite.FailNow(err.Error())

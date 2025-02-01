@@ -65,9 +65,7 @@ func getFutureStatus() *gtsmodel.Status {
 		Language:                 "en",
 		CreatedWithApplicationID: "01F8MGXQRHYF5QPMTMXP78QC2F",
 		Federated:                util.Ptr(true),
-		Boostable:                util.Ptr(true),
-		Replyable:                util.Ptr(true),
-		Likeable:                 util.Ptr(true),
+		InteractionPolicy:        gtsmodel.DefaultInteractionPolicyPublic(),
 		ActivityStreamsType:      ap.ObjectNote,
 	}
 }
@@ -76,7 +74,8 @@ func (suite *TimelineTestSuite) publicCount() int {
 	var publicCount int
 	for _, status := range suite.testStatuses {
 		if status.Visibility == gtsmodel.VisibilityPublic &&
-			status.BoostOfID == "" {
+			status.BoostOfID == "" &&
+			!util.PtrOrZero(status.PendingApproval) {
 			publicCount++
 		}
 	}
@@ -157,7 +156,47 @@ func (suite *TimelineTestSuite) TestGetHomeTimeline() {
 		suite.FailNow(err.Error())
 	}
 
-	suite.checkStatuses(s, id.Highest, id.Lowest, 19)
+	suite.checkStatuses(s, id.Highest, id.Lowest, 20)
+}
+
+func (suite *TimelineTestSuite) TestGetHomeTimelineIgnoreExclusive() {
+	var (
+		ctx            = context.Background()
+		viewingAccount = suite.testAccounts["local_account_1"]
+	)
+
+	// local_account_1_list_1 contains both admin_account
+	// and local_account_2. If we mark this list as exclusive,
+	// and remove the list entry for admin account, we should
+	// only get statuses from zork and turtle in the timeline.
+	list := new(gtsmodel.List)
+	*list = *suite.testLists["local_account_1_list_1"]
+	list.Exclusive = util.Ptr(true)
+	if err := suite.db.UpdateList(ctx, list, "exclusive"); err != nil {
+		suite.FailNow(err.Error())
+	}
+
+	// First try with list just set to exclusive.
+	// We should only get zork's own statuses.
+	s, err := suite.db.GetHomeTimeline(ctx, viewingAccount.ID, "", "", "", 20, false)
+	if err != nil {
+		suite.FailNow(err.Error())
+	}
+	suite.checkStatuses(s, id.Highest, id.Lowest, 8)
+
+	// Remove admin account from the exclusive list.
+	listEntry := suite.testListEntries["local_account_1_list_1_entry_2"]
+	if err := suite.db.DeleteListEntry(ctx, listEntry.ListID, listEntry.FollowID); err != nil {
+		suite.FailNow(err.Error())
+	}
+
+	// Zork should only see their own
+	// statuses and admin's statuses now.
+	s, err = suite.db.GetHomeTimeline(ctx, viewingAccount.ID, "", "", "", 20, false)
+	if err != nil {
+		suite.FailNow(err.Error())
+	}
+	suite.checkStatuses(s, id.Highest, id.Lowest, 12)
 }
 
 func (suite *TimelineTestSuite) TestGetHomeTimelineNoFollowing() {
@@ -189,7 +228,7 @@ func (suite *TimelineTestSuite) TestGetHomeTimelineNoFollowing() {
 		suite.FailNow(err.Error())
 	}
 
-	suite.checkStatuses(s, id.Highest, id.Lowest, 7)
+	suite.checkStatuses(s, id.Highest, id.Lowest, 8)
 }
 
 func (suite *TimelineTestSuite) TestGetHomeTimelineWithFutureStatus() {
@@ -211,7 +250,7 @@ func (suite *TimelineTestSuite) TestGetHomeTimelineWithFutureStatus() {
 	}
 
 	suite.NotContains(s, futureStatus)
-	suite.checkStatuses(s, id.Highest, id.Lowest, 19)
+	suite.checkStatuses(s, id.Highest, id.Lowest, 20)
 }
 
 func (suite *TimelineTestSuite) TestGetHomeTimelineBackToFront() {
@@ -242,8 +281,8 @@ func (suite *TimelineTestSuite) TestGetHomeTimelineFromHighest() {
 	}
 
 	suite.checkStatuses(s, id.Highest, id.Lowest, 5)
-	suite.Equal("01HH9KYNQPA416TNJ53NSATP40", s[0].ID)
-	suite.Equal("01G20ZM733MGN8J344T4ZDDFY1", s[len(s)-1].ID)
+	suite.Equal("01J2M1HPFSS54S60Y0KYV23KJE", s[0].ID)
+	suite.Equal("01G36SF3V6Y6V5BF9P4R7PQG7G", s[len(s)-1].ID)
 }
 
 func (suite *TimelineTestSuite) TestGetListTimelineNoParams() {

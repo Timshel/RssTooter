@@ -74,12 +74,13 @@ func (suite *NotificationTestSuite) TestStreamNotification() {
     "url": "http://fossbros-anonymous.io/@foss_satan",
     "avatar": "",
     "avatar_static": "",
-    "header": "http://localhost:8080/assets/default_header.png",
-    "header_static": "http://localhost:8080/assets/default_header.png",
+    "header": "http://localhost:8080/assets/default_header.webp",
+    "header_static": "http://localhost:8080/assets/default_header.webp",
+    "header_description": "Flat gray background (default header).",
     "followers_count": 0,
     "following_count": 0,
     "statuses_count": 3,
-    "last_status_at": "2021-09-11T09:40:37.000Z",
+    "last_status_at": "2021-09-11",
     "emojis": [],
     "fields": []
   }

@@ -78,10 +78,22 @@ import (
 //		description: Avatar of the user.
 //		type: file
 //	-
+//		name: avatar_description
+//		in: formData
+//		description: Description of avatar image, for alt-text.
+//		type: string
+//		allowEmptyValue: true
+//	-
 //		name: header
 //		in: formData
 //		description: Header of the user.
 //		type: file
+//	-
+//		name: header_description
+//		in: formData
+//		description: Description of header image, for alt-text.
+//		type: string
+//		allowEmptyValue: true
 //	-
 //		name: locked
 //		in: formData
@@ -132,6 +144,15 @@ import (
 //		in: formData
 //		description: Hide the account's following/followers collections.
 //		type: boolean
+//	-
+//		name: web_visibility
+//		in: formData
+//		description: |-
+//			Posts to show on the web view of the account.
+//			"public": default, show only Public visibility posts on the web.
+//			"unlisted": show Public *and* Unlisted visibility posts on the web.
+//			"none": show no posts on the web, not even Public ones.
+//		type: string
 //	-
 //		name: fields_attributes[0][name]
 //		in: formData
@@ -315,7 +336,9 @@ func parseUpdateAccountForm(c *gin.Context) (*apimodel.UpdateCredentialsRequest,
 			form.DisplayName == nil &&
 			form.Note == nil &&
 			form.Avatar == nil &&
+			form.AvatarDescription == nil &&
 			form.Header == nil &&
+			form.HeaderDescription == nil &&
 			form.Locked == nil &&
 			form.Source.Privacy == nil &&
 			form.Source.Sensitive == nil &&
@@ -325,7 +348,8 @@ func parseUpdateAccountForm(c *gin.Context) (*apimodel.UpdateCredentialsRequest,
 			form.Theme == nil &&
 			form.CustomCSS == nil &&
 			form.EnableRSS == nil &&
-			form.HideCollections == nil) {
+			form.HideCollections == nil &&
+			form.WebVisibility == nil) {
 		return nil, errors.New("empty form submitted")
 	}
 

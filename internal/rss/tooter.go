@@ -7,6 +7,7 @@ import (
 
    "github.com/superseriousbusiness/gotosocial/internal/config"
    "github.com/superseriousbusiness/gotosocial/internal/federation/dereferencing"
+   "github.com/superseriousbusiness/gotosocial/internal/filter/interaction"
    "github.com/superseriousbusiness/gotosocial/internal/filter/visibility"
    "github.com/superseriousbusiness/gotosocial/internal/httpclient"
    "github.com/superseriousbusiness/gotosocial/internal/media"
@@ -49,15 +50,16 @@ func NewRssTooter(
    pCtx                 context.Context,
    state                *state.State,
    mediaManager         *media.Manager,
-   transportController  transport.Controller, 
+   transportController  transport.Controller,
    typeConverter        *typeutils.Converter,
-   visFilter            *visibility.Filter,
+   visFilter *visibility.Filter,
+   intFilter *interaction.Filter,
 ) RssTooter {
    ctx, cancelFunc := context.WithCancel(pCtx)
 
    return &rssTooter{
       state:                  state,
-      dereferencer:           dereferencing.NewDereferencer(state, typeConverter, transportController, visFilter, mediaManager),
+      dereferencer:           dereferencing.NewDereferencer(state, typeConverter, transportController, visFilter, intFilter, mediaManager),
       httpclient:             httpclient.New(httpclient.Config{ MaxOpenConnsPerHost: 1, }),
       ctx:                    ctx,
       cancelFunc:             cancelFunc,

@@ -60,19 +60,20 @@ type Configuration struct {
 	TrustedProxies     []string `name:"trusted-proxies" usage:"Proxies to trust when parsing x-forwarded headers into real IPs."`
 	SoftwareVersion    string   `name:"software-version" usage:""`
 
-	DbType                   string        `name:"db-type" usage:"Database type: eg., postgres"`
-	DbAddress                string        `name:"db-address" usage:"Database ipv4 address, hostname, or filename"`
-	DbPort                   int           `name:"db-port" usage:"Database port"`
-	DbUser                   string        `name:"db-user" usage:"Database username"`
-	DbPassword               string        `name:"db-password" usage:"Database password"`
-	DbDatabase               string        `name:"db-database" usage:"Database name"`
-	DbTLSMode                string        `name:"db-tls-mode" usage:"Database tls mode"`
-	DbTLSCACert              string        `name:"db-tls-ca-cert" usage:"Path to CA cert for db tls connection"`
-	DbMaxOpenConnsMultiplier int           `name:"db-max-open-conns-multiplier" usage:"Multiplier to use per cpu for max open database connections. 0 or less is normalized to 1."`
-	DbSqliteJournalMode      string        `name:"db-sqlite-journal-mode" usage:"Sqlite only: see https://www.sqlite.org/pragma.html#pragma_journal_mode"`
-	DbSqliteSynchronous      string        `name:"db-sqlite-synchronous" usage:"Sqlite only: see https://www.sqlite.org/pragma.html#pragma_synchronous"`
-	DbSqliteCacheSize        bytesize.Size `name:"db-sqlite-cache-size" usage:"Sqlite only: see https://www.sqlite.org/pragma.html#pragma_cache_size"`
-	DbSqliteBusyTimeout      time.Duration `name:"db-sqlite-busy-timeout" usage:"Sqlite only: see https://www.sqlite.org/pragma.html#pragma_busy_timeout"`
+	DbType                     string        `name:"db-type" usage:"Database type: eg., postgres"`
+	DbAddress                  string        `name:"db-address" usage:"Database ipv4 address, hostname, or filename"`
+	DbPort                     int           `name:"db-port" usage:"Database port"`
+	DbUser                     string        `name:"db-user" usage:"Database username"`
+	DbPassword                 string        `name:"db-password" usage:"Database password"`
+	DbDatabase                 string        `name:"db-database" usage:"Database name"`
+	DbTLSMode                  string        `name:"db-tls-mode" usage:"Database tls mode"`
+	DbTLSCACert                string        `name:"db-tls-ca-cert" usage:"Path to CA cert for db tls connection"`
+	DbMaxOpenConnsMultiplier   int           `name:"db-max-open-conns-multiplier" usage:"Multiplier to use per cpu for max open database connections. 0 or less is normalized to 1."`
+	DbSqliteJournalMode        string        `name:"db-sqlite-journal-mode" usage:"Sqlite only: see https://www.sqlite.org/pragma.html#pragma_journal_mode"`
+	DbSqliteSynchronous        string        `name:"db-sqlite-synchronous" usage:"Sqlite only: see https://www.sqlite.org/pragma.html#pragma_synchronous"`
+	DbSqliteCacheSize          bytesize.Size `name:"db-sqlite-cache-size" usage:"Sqlite only: see https://www.sqlite.org/pragma.html#pragma_cache_size"`
+	DbSqliteBusyTimeout        time.Duration `name:"db-sqlite-busy-timeout" usage:"Sqlite only: see https://www.sqlite.org/pragma.html#pragma_busy_timeout"`
+	DbPostgresConnectionString string        `name:"db-postgres-connection-string" usage:"Full Database URL for connection to postgres"`
 
 	WebTemplateBaseDir string `name:"web-template-base-dir" usage:"Basedir for html templating files for rendering pages and composing emails."`
 	WebAssetBaseDir    string `name:"web-asset-base-dir" usage:"Directory to serve static assets from, accessible at example.org/assets/"`
@@ -92,15 +93,18 @@ type Configuration struct {
 	AccountsAllowCustomCSS   bool `name:"accounts-allow-custom-css" usage:"Allow accounts to enable custom CSS for their profile pages and statuses."`
 	AccountsCustomCSSLength  int  `name:"accounts-custom-css-length" usage:"Maximum permitted length (characters) of custom CSS for accounts."`
 
-	MediaImageMaxSize        bytesize.Size `name:"media-image-max-size" usage:"Max size of accepted images in bytes"`
-	MediaVideoMaxSize        bytesize.Size `name:"media-video-max-size" usage:"Max size of accepted videos in bytes"`
 	MediaDescriptionMinChars int           `name:"media-description-min-chars" usage:"Min required chars for an image description"`
 	MediaDescriptionMaxChars int           `name:"media-description-max-chars" usage:"Max permitted chars for an image description"`
 	MediaRemoteCacheDays     int           `name:"media-remote-cache-days" usage:"Number of days to locally cache media from remote instances. If set to 0, remote media will be kept indefinitely."`
 	MediaEmojiLocalMaxSize   bytesize.Size `name:"media-emoji-local-max-size" usage:"Max size in bytes of emojis uploaded to this instance via the admin API."`
 	MediaEmojiRemoteMaxSize  bytesize.Size `name:"media-emoji-remote-max-size" usage:"Max size in bytes of emojis to download from other instances."`
+	MediaImageSizeHint       bytesize.Size `name:"media-image-size-hint" usage:"Size in bytes of max image size referred to on /api/v_/instance endpoints (else, local max size)"`
+	MediaVideoSizeHint       bytesize.Size `name:"media-video-size-hint" usage:"Size in bytes of max video size referred to on /api/v_/instance endpoints (else, local max size)"`
+	MediaLocalMaxSize        bytesize.Size `name:"media-local-max-size" usage:"Max size in bytes of media uploaded to this instance via API"`
+	MediaRemoteMaxSize       bytesize.Size `name:"media-remote-max-size" usage:"Max size in bytes of media to download from other instances"`
 	MediaCleanupFrom         string        `name:"media-cleanup-from" usage:"Time of day from which to start running media cleanup/prune jobs. Should be in the format 'hh:mm:ss', eg., '15:04:05'."`
 	MediaCleanupEvery        time.Duration `name:"media-cleanup-every" usage:"Period to elapse between cleanups, starting from media-cleanup-at."`
+	MediaFfmpegPoolSize      int           `name:"media-ffmpeg-pool-size" usage:"Number of instances of the embedded ffmpeg WASM binary to add to the media processing pool. 0 or less uses GOMAXPROCS."`
 
 	StorageBackend       string `name:"storage-backend" usage:"Storage backend to use for media attachments"`
 	StorageLocalBasePath string `name:"storage-local-base-path" usage:"Full path to an already-created directory where gts should store/retrieve media files. Subfolders will be created within this dir."`
@@ -110,6 +114,7 @@ type Configuration struct {
 	StorageS3UseSSL      bool   `name:"storage-s3-use-ssl" usage:"Use SSL for S3 connections. Only set this to 'false' when testing locally"`
 	StorageS3BucketName  string `name:"storage-s3-bucket" usage:"Place blobs in this bucket"`
 	StorageS3Proxy       bool   `name:"storage-s3-proxy" usage:"Proxy S3 contents through GoToSocial instead of redirecting to a presigned URL"`
+	StorageS3RedirectURL string `name:"storage-s3-redirect-url" usage:"Custom URL to use for redirecting S3 media links. If set, this will be used instead of the S3 bucket URL."`
 
 	StatusesMaxChars           int `name:"statuses-max-chars" usage:"Max permitted characters for posted statuses, including content warning"`
 	StatusesPollMaxOptions     int `name:"statuses-poll-max-options" usage:"Max amount of options permitted on a poll"`
@@ -194,52 +199,58 @@ type HTTPClientConfiguration struct {
 }
 
 type CacheConfiguration struct {
-	MemoryTarget              bytesize.Size `name:"memory-target"`
-	AccountMemRatio           float64       `name:"account-mem-ratio"`
-	AccountNoteMemRatio       float64       `name:"account-note-mem-ratio"`
-	AccountSettingsMemRatio   float64       `name:"account-settings-mem-ratio"`
-	AccountStatsMemRatio      float64       `name:"account-stats-mem-ratio"`
-	ApplicationMemRatio       float64       `name:"application-mem-ratio"`
-	BlockMemRatio             float64       `name:"block-mem-ratio"`
-	BlockIDsMemRatio          float64       `name:"block-ids-mem-ratio"`
-	BoostOfIDsMemRatio        float64       `name:"boost-of-ids-mem-ratio"`
-	ClientMemRatio            float64       `name:"client-mem-ratio"`
-	EmojiMemRatio             float64       `name:"emoji-mem-ratio"`
-	EmojiCategoryMemRatio     float64       `name:"emoji-category-mem-ratio"`
-	FilterMemRatio            float64       `name:"filter-mem-ratio"`
-	FilterKeywordMemRatio     float64       `name:"filter-keyword-mem-ratio"`
-	FilterStatusMemRatio      float64       `name:"filter-status-mem-ratio"`
-	FollowMemRatio            float64       `name:"follow-mem-ratio"`
-	FollowIDsMemRatio         float64       `name:"follow-ids-mem-ratio"`
-	FollowRequestMemRatio     float64       `name:"follow-request-mem-ratio"`
-	FollowRequestIDsMemRatio  float64       `name:"follow-request-ids-mem-ratio"`
-	InReplyToIDsMemRatio      float64       `name:"in-reply-to-ids-mem-ratio"`
-	InstanceMemRatio          float64       `name:"instance-mem-ratio"`
-	ListMemRatio              float64       `name:"list-mem-ratio"`
-	ListEntryMemRatio         float64       `name:"list-entry-mem-ratio"`
-	MarkerMemRatio            float64       `name:"marker-mem-ratio"`
-	MediaMemRatio             float64       `name:"media-mem-ratio"`
-	MentionMemRatio           float64       `name:"mention-mem-ratio"`
-	MoveMemRatio              float64       `name:"move-mem-ratio"`
-	NotificationMemRatio      float64       `name:"notification-mem-ratio"`
-	PollMemRatio              float64       `name:"poll-mem-ratio"`
-	PollVoteMemRatio          float64       `name:"poll-vote-mem-ratio"`
-	PollVoteIDsMemRatio       float64       `name:"poll-vote-ids-mem-ratio"`
-	ReportMemRatio            float64       `name:"report-mem-ratio"`
-	StatusMemRatio            float64       `name:"status-mem-ratio"`
-	StatusBookmarkMemRatio    float64       `name:"status-bookmark-mem-ratio"`
-	StatusBookmarkIDsMemRatio float64       `name:"status-bookmark-ids-mem-ratio"`
-	StatusFaveMemRatio        float64       `name:"status-fave-mem-ratio"`
-	StatusFaveIDsMemRatio     float64       `name:"status-fave-ids-mem-ratio"`
-	TagMemRatio               float64       `name:"tag-mem-ratio"`
-	ThreadMuteMemRatio        float64       `name:"thread-mute-mem-ratio"`
-	TokenMemRatio             float64       `name:"token-mem-ratio"`
-	TombstoneMemRatio         float64       `name:"tombstone-mem-ratio"`
-	UserMemRatio              float64       `name:"user-mem-ratio"`
-	UserMuteMemRatio          float64       `name:"user-mute-mem-ratio"`
-	UserMuteIDsMemRatio       float64       `name:"user-mute-ids-mem-ratio"`
-	WebfingerMemRatio         float64       `name:"webfinger-mem-ratio"`
-	VisibilityMemRatio        float64       `name:"visibility-mem-ratio"`
+	MemoryTarget                      bytesize.Size `name:"memory-target"`
+	AccountMemRatio                   float64       `name:"account-mem-ratio"`
+	AccountNoteMemRatio               float64       `name:"account-note-mem-ratio"`
+	AccountSettingsMemRatio           float64       `name:"account-settings-mem-ratio"`
+	AccountStatsMemRatio              float64       `name:"account-stats-mem-ratio"`
+	ApplicationMemRatio               float64       `name:"application-mem-ratio"`
+	BlockMemRatio                     float64       `name:"block-mem-ratio"`
+	BlockIDsMemRatio                  float64       `name:"block-ids-mem-ratio"`
+	BoostOfIDsMemRatio                float64       `name:"boost-of-ids-mem-ratio"`
+	ClientMemRatio                    float64       `name:"client-mem-ratio"`
+	ConversationMemRatio              float64       `name:"conversation-mem-ratio"`
+	ConversationLastStatusIDsMemRatio float64       `name:"conversation-last-status-ids-mem-ratio"`
+	EmojiMemRatio                     float64       `name:"emoji-mem-ratio"`
+	EmojiCategoryMemRatio             float64       `name:"emoji-category-mem-ratio"`
+	FilterMemRatio                    float64       `name:"filter-mem-ratio"`
+	FilterKeywordMemRatio             float64       `name:"filter-keyword-mem-ratio"`
+	FilterStatusMemRatio              float64       `name:"filter-status-mem-ratio"`
+	FollowMemRatio                    float64       `name:"follow-mem-ratio"`
+	FollowIDsMemRatio                 float64       `name:"follow-ids-mem-ratio"`
+	FollowRequestMemRatio             float64       `name:"follow-request-mem-ratio"`
+	FollowRequestIDsMemRatio          float64       `name:"follow-request-ids-mem-ratio"`
+	FollowingTagIDsMemRatio           float64       `name:"following-tag-ids-mem-ratio"`
+	InReplyToIDsMemRatio              float64       `name:"in-reply-to-ids-mem-ratio"`
+	InstanceMemRatio                  float64       `name:"instance-mem-ratio"`
+	InteractionRequestMemRatio        float64       `name:"interaction-request-mem-ratio"`
+	ListMemRatio                      float64       `name:"list-mem-ratio"`
+	ListIDsMemRatio                   float64       `name:"list-ids-mem-ratio"`
+	ListedIDsMemRatio                 float64       `name:"listed-ids-mem-ratio"`
+	MarkerMemRatio                    float64       `name:"marker-mem-ratio"`
+	MediaMemRatio                     float64       `name:"media-mem-ratio"`
+	MentionMemRatio                   float64       `name:"mention-mem-ratio"`
+	MoveMemRatio                      float64       `name:"move-mem-ratio"`
+	NotificationMemRatio              float64       `name:"notification-mem-ratio"`
+	PollMemRatio                      float64       `name:"poll-mem-ratio"`
+	PollVoteMemRatio                  float64       `name:"poll-vote-mem-ratio"`
+	PollVoteIDsMemRatio               float64       `name:"poll-vote-ids-mem-ratio"`
+	ReportMemRatio                    float64       `name:"report-mem-ratio"`
+	SinBinStatusMemRatio              float64       `name:"sin-bin-status-mem-ratio"`
+	StatusMemRatio                    float64       `name:"status-mem-ratio"`
+	StatusBookmarkMemRatio            float64       `name:"status-bookmark-mem-ratio"`
+	StatusBookmarkIDsMemRatio         float64       `name:"status-bookmark-ids-mem-ratio"`
+	StatusFaveMemRatio                float64       `name:"status-fave-mem-ratio"`
+	StatusFaveIDsMemRatio             float64       `name:"status-fave-ids-mem-ratio"`
+	TagMemRatio                       float64       `name:"tag-mem-ratio"`
+	ThreadMuteMemRatio                float64       `name:"thread-mute-mem-ratio"`
+	TokenMemRatio                     float64       `name:"token-mem-ratio"`
+	TombstoneMemRatio                 float64       `name:"tombstone-mem-ratio"`
+	UserMemRatio                      float64       `name:"user-mem-ratio"`
+	UserMuteMemRatio                  float64       `name:"user-mute-mem-ratio"`
+	UserMuteIDsMemRatio               float64       `name:"user-mute-ids-mem-ratio"`
+	WebfingerMemRatio                 float64       `name:"webfinger-mem-ratio"`
+	VisibilityMemRatio                float64       `name:"visibility-mem-ratio"`
 }
 
 // MarshalMap will marshal current Configuration into a map structure (useful for JSON/TOML/YAML).

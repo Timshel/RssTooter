@@ -81,7 +81,7 @@ func (suite *InternalToRSSTestSuite) TestStatusToRSSItem2() {
 	suite.Equal("62529", item.Enclosure.Length)
 	suite.Equal("image/jpeg", item.Enclosure.Type)
 	suite.Equal("http://localhost:8080/fileserver/01F8MH17FWEB39HZJ76B6VXSKF/attachment/original/01F8MH6NEM8D7527KZAECTCR76.jpg", item.Enclosure.Url)
-	suite.Equal("hello world! #welcome ! first post on the instance <img src=\"http://localhost:8080/fileserver/01AY6P665V14JJR0AFVRT7311Y/emoji/original/01F8MH9H8E4VG3KDYJR9EGPXCQ.png\" title=\":rainbow:\" alt=\":rainbow:\" width=\"25\" height=\"25\"/> !", item.Content)
+	suite.Equal("hello world! #welcome ! first post on the instance <img src=\"http://localhost:8080/fileserver/01AY6P665V14JJR0AFVRT7311Y/emoji/original/01F8MH9H8E4VG3KDYJR9EGPXCQ.png\" title=\":rainbow:\" alt=\":rainbow:\" width=\"25\" height=\"25\" /> !", item.Content)
 }
 
 func (suite *InternalToRSSTestSuite) TestStatusToRSSItem3() {
@@ -98,9 +98,6 @@ func (suite *InternalToRSSTestSuite) TestStatusToRSSItem3() {
 		Visibility:          gtsmodel.VisibilityDefault,
 		ActivityStreamsType: ap.ObjectNote,
 		Federated:           util.Ptr(true),
-		Boostable:           util.Ptr(true),
-		Replyable:           util.Ptr(true),
-		Likeable:            util.Ptr(true),
 	}
 	item, err := suite.typeconverter.StatusToRSSItem(context.Background(), s)
 	suite.NoError(err)
@@ -130,6 +127,7 @@ func (suite *InternalToRSSTestSuite) TestStatusToRSSItem3() {
   </Author>
   <Description>@admin@localhost:8080 made a new post</Description>
   <Id>http://localhost:8080/@admin/statuses/01H7G0VW1ACBZTRHN6RSA4JWVH</Id>
+  <IsPermaLink>true</IsPermaLink>
   <Updated>0001-01-01T00:00:00Z</Updated>
   <Created>0001-01-01T00:00:00Z</Created>
   <Enclosure>

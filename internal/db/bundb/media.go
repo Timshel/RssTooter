@@ -24,7 +24,6 @@ import (
 	"time"
 
 	"github.com/superseriousbusiness/gotosocial/internal/db"
-	"github.com/superseriousbusiness/gotosocial/internal/gtscontext"
 	"github.com/superseriousbusiness/gotosocial/internal/gtserror"
 	"github.com/superseriousbusiness/gotosocial/internal/gtsmodel"
 	"github.com/superseriousbusiness/gotosocial/internal/paging"
@@ -54,7 +53,7 @@ func (m *mediaDB) GetAttachmentByID(ctx context.Context, id string) (*gtsmodel.M
 
 func (m *mediaDB) GetAttachmentsByIDs(ctx context.Context, ids []string) ([]*gtsmodel.MediaAttachment, error) {
 	// Load all media IDs via cache loader callbacks.
-	media, err := m.state.Caches.GTS.Media.LoadIDs("ID",
+	media, err := m.state.Caches.DB.Media.LoadIDs("ID",
 		ids,
 		func(uncached []string) ([]*gtsmodel.MediaAttachment, error) {
 			// Preallocate expected length of uncached media attachments.
@@ -85,7 +84,7 @@ func (m *mediaDB) GetAttachmentsByIDs(ctx context.Context, ids []string) ([]*gts
 }
 
 func (m *mediaDB) getAttachment(ctx context.Context, lookup string, dbQuery func(*gtsmodel.MediaAttachment) error, keyParts ...any) (*gtsmodel.MediaAttachment, error) {
-	return m.state.Caches.GTS.Media.LoadOne(lookup, func() (*gtsmodel.MediaAttachment, error) {
+	return m.state.Caches.DB.Media.LoadOne(lookup, func() (*gtsmodel.MediaAttachment, error) {
 		var attachment gtsmodel.MediaAttachment
 
 		// Not cached! Perform database query
@@ -98,7 +97,7 @@ func (m *mediaDB) getAttachment(ctx context.Context, lookup string, dbQuery func
 }
 
 func (m *mediaDB) PutAttachment(ctx context.Context, media *gtsmodel.MediaAttachment) error {
-	return m.state.Caches.GTS.Media.Store(media, func() error {
+	return m.state.Caches.DB.Media.Store(media, func() error {
 		_, err := m.db.NewInsert().Model(media).Exec(ctx)
 		return err
 	})
@@ -111,7 +110,7 @@ func (m *mediaDB) UpdateAttachment(ctx context.Context, media *gtsmodel.MediaAtt
 		columns = append(columns, "updated_at")
 	}
 
-	return m.state.Caches.GTS.Media.Store(media, func() error {
+	return m.state.Caches.DB.Media.Store(media, func() error {
 		_, err := m.db.NewUpdate().
 			Model(media).
 			Where("? = ?", bun.Ident("media_attachment.id"), media.ID).
@@ -122,30 +121,38 @@ func (m *mediaDB) UpdateAttachment(ctx context.Context, media *gtsmodel.MediaAtt
 }
 
 func (m *mediaDB) DeleteAttachment(ctx context.Context, id string) error {
-	// Load media into cache before attempting a delete,
-	// as we need it cached in order to trigger the invalidate
-	// callback. This in turn invalidates others.
-	media, err := m.GetAttachmentByID(gtscontext.SetBarebones(ctx), id)
-	if err != nil {
-		if errors.Is(err, db.ErrNoEntries) {
-			// not an issue.
-			err = nil
+	// Gather necessary fields from
+	// deleted for cache invaliation.
+	var deleted gtsmodel.MediaAttachment
+	deleted.ID = id
+
+	// Delete media attachment and update related models in new transaction.
+	err := m.db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+
+		// Initially, delete the media model,
+		// returning the required fields we need.
+		if _, err := tx.NewDelete().
+			Model(&deleted).
+			Where("? = ?", bun.Ident("id"), id).
+			Returning("?, ?, ?, ?",
+				bun.Ident("account_id"),
+				bun.Ident("status_id"),
+				bun.Ident("avatar"),
+				bun.Ident("header"),
+			).
+			Exec(ctx); err != nil {
+			return gtserror.Newf("error deleting media: %w", err)
 		}
-		return err
-	}
 
-	// On return, ensure that media with ID is invalidated.
-	defer m.state.Caches.GTS.Media.Invalidate("ID", id)
-
-	// Delete media attachment in new transaction.
-	err = m.db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
-		if media.AccountID != "" {
+		// If media was attached to account,
+		// we need to remove link from account.
+		if deleted.AccountID != "" {
 			var account gtsmodel.Account
 
 			// Get related account model.
 			if _, err := tx.NewSelect().
 				Model(&account).
-				Where("? = ?", bun.Ident("id"), media.AccountID).
+				Where("? = ?", bun.Ident("id"), deleted.AccountID).
 				Exec(ctx); err != nil && !errors.Is(err, db.ErrNoEntries) {
 				return gtserror.Newf("error selecting account: %w", err)
 			}
@@ -153,11 +160,11 @@ func (m *mediaDB) DeleteAttachment(ctx context.Context, id string) error {
 			var set func(*bun.UpdateQuery) *bun.UpdateQuery
 
 			switch {
-			case *media.Avatar && account.AvatarMediaAttachmentID == id:
+			case *deleted.Avatar && account.AvatarMediaAttachmentID == id:
 				set = func(q *bun.UpdateQuery) *bun.UpdateQuery {
 					return q.Set("? = NULL", bun.Ident("avatar_media_attachment_id"))
 				}
-			case *media.Header && account.HeaderMediaAttachmentID == id:
+			case *deleted.Header && account.HeaderMediaAttachmentID == id:
 				set = func(q *bun.UpdateQuery) *bun.UpdateQuery {
 					return q.Set("? = NULL", bun.Ident("header_media_attachment_id"))
 				}
@@ -176,13 +183,15 @@ func (m *mediaDB) DeleteAttachment(ctx context.Context, id string) error {
 			}
 		}
 
-		if media.StatusID != "" {
+		// If media was attached to a status,
+		// we need to remove link from status.
+		if deleted.StatusID != "" {
 			var status gtsmodel.Status
 
 			// Get related status model.
 			if _, err := tx.NewSelect().
 				Model(&status).
-				Where("? = ?", bun.Ident("id"), media.StatusID).
+				Where("? = ?", bun.Ident("id"), deleted.StatusID).
 				Exec(ctx); err != nil && !errors.Is(err, db.ErrNoEntries) {
 				return gtserror.Newf("error selecting status: %w", err)
 			}
@@ -206,16 +215,13 @@ func (m *mediaDB) DeleteAttachment(ctx context.Context, id string) error {
 			}
 		}
 
-		// Finally delete this media.
-		if _, err := tx.NewDelete().
-			Table("media_attachments").
-			Where("? = ?", bun.Ident("id"), id).
-			Exec(ctx); err != nil {
-			return gtserror.Newf("error deleting media: %w", err)
-		}
-
 		return nil
 	})
+
+	// Invalidate cached media with ID, manually
+	// call invalidate hook in case not in cache.
+	m.state.Caches.DB.Media.Invalidate("ID", id)
+	m.state.Caches.OnInvalidateMedia(&deleted)
 
 	return err
 }

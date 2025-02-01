@@ -78,7 +78,7 @@ func (r *relationshipDB) GetFollowRequest(ctx context.Context, sourceAccountID s
 
 func (r *relationshipDB) GetFollowRequestsByIDs(ctx context.Context, ids []string) ([]*gtsmodel.FollowRequest, error) {
 	// Load all follow IDs via cache loader callbacks.
-	follows, err := r.state.Caches.GTS.FollowRequest.LoadIDs("ID",
+	follows, err := r.state.Caches.DB.FollowRequest.LoadIDs("ID",
 		ids,
 		func(uncached []string) ([]*gtsmodel.FollowRequest, error) {
 			// Preallocate expected length of uncached followReqs.
@@ -137,7 +137,7 @@ func (r *relationshipDB) IsFollowRequested(ctx context.Context, sourceAccountID 
 
 func (r *relationshipDB) getFollowRequest(ctx context.Context, lookup string, dbQuery func(*gtsmodel.FollowRequest) error, keyParts ...any) (*gtsmodel.FollowRequest, error) {
 	// Fetch follow request from database cache with loader callback
-	followReq, err := r.state.Caches.GTS.FollowRequest.LoadOne(lookup, func() (*gtsmodel.FollowRequest, error) {
+	followReq, err := r.state.Caches.DB.FollowRequest.LoadOne(lookup, func() (*gtsmodel.FollowRequest, error) {
 		var followReq gtsmodel.FollowRequest
 
 		// Not cached! Perform database query
@@ -196,7 +196,7 @@ func (r *relationshipDB) PopulateFollowRequest(ctx context.Context, follow *gtsm
 }
 
 func (r *relationshipDB) PutFollowRequest(ctx context.Context, follow *gtsmodel.FollowRequest) error {
-	return r.state.Caches.GTS.FollowRequest.Store(follow, func() error {
+	return r.state.Caches.DB.FollowRequest.Store(follow, func() error {
 		_, err := r.db.NewInsert().Model(follow).Exec(ctx)
 		return err
 	})
@@ -209,7 +209,7 @@ func (r *relationshipDB) UpdateFollowRequest(ctx context.Context, followRequest 
 		columns = append(columns, "updated_at")
 	}
 
-	return r.state.Caches.GTS.FollowRequest.Store(followRequest, func() error {
+	return r.state.Caches.DB.FollowRequest.Store(followRequest, func() error {
 		if _, err := r.db.NewUpdate().
 			Model(followRequest).
 			Where("? = ?", bun.Ident("follow_request.id"), followRequest.ID).
@@ -242,7 +242,7 @@ func (r *relationshipDB) AcceptFollowRequest(ctx context.Context, sourceAccountI
 		Notify:          followReq.Notify,
 	}
 
-	if err := r.state.Caches.GTS.Follow.Store(follow, func() error {
+	if err := r.state.Caches.DB.Follow.Store(follow, func() error {
 		// If the follow already exists, just
 		// replace the URI with the new one.
 		_, err := r.db.
@@ -286,118 +286,131 @@ func (r *relationshipDB) RejectFollowRequest(ctx context.Context, sourceAccountI
 	}, targetAccountID, sourceAccountID)
 }
 
-func (r *relationshipDB) DeleteFollowRequest(ctx context.Context, sourceAccountID string, targetAccountID string) error {
-	// Load followreq into cache before attempting a delete,
-	// as we need it cached in order to trigger the invalidate
-	// callback. This in turn invalidates others.
-	follow, err := r.GetFollowRequest(
-		gtscontext.SetBarebones(ctx),
-		sourceAccountID,
-		targetAccountID,
-	)
-	if err != nil {
-		if errors.Is(err, db.ErrNoEntries) {
-			// Already gone.
-			return nil
-		}
+func (r *relationshipDB) DeleteFollowRequest(
+	ctx context.Context,
+	sourceAccountID string,
+	targetAccountID string,
+) error {
+
+	// Gather necessary fields from
+	// deleted for cache invaliation.
+	var deleted gtsmodel.FollowRequest
+	deleted.AccountID = sourceAccountID
+	deleted.TargetAccountID = targetAccountID
+
+	// Delete all follow reqs either
+	// from account, or targeting account,
+	// returning the deleted models.
+	if _, err := r.db.NewDelete().
+		Model(&deleted).
+		Where("? = ?", bun.Ident("account_id"), sourceAccountID).
+		Where("? = ?", bun.Ident("target_account_id"), targetAccountID).
+		Returning("?", bun.Ident("id")).
+		Exec(ctx); err != nil &&
+		!errors.Is(err, db.ErrNoEntries) {
 		return err
 	}
 
-	// Drop this now-cached follow request on return after delete.
-	defer r.state.Caches.GTS.FollowRequest.Invalidate("AccountID,TargetAccountID", sourceAccountID, targetAccountID)
+	// Invalidate cached follow with source / target account IDs,
+	// manually calling invalidate hook in case it isn't cached.
+	r.state.Caches.DB.FollowRequest.Invalidate("AccountID,TargetAccountID",
+		sourceAccountID, targetAccountID)
+	r.state.Caches.OnInvalidateFollowRequest(&deleted)
 
-	// Finally delete followreq from DB.
-	_, err = r.db.NewDelete().
-		Table("follow_requests").
-		Where("? = ?", bun.Ident("id"), follow.ID).
-		Exec(ctx)
-	return err
+	return nil
 }
 
 func (r *relationshipDB) DeleteFollowRequestByID(ctx context.Context, id string) error {
-	// Load followreq into cache before attempting a delete,
-	// as we need it cached in order to trigger the invalidate
-	// callback. This in turn invalidates others.
-	_, err := r.GetFollowRequestByID(gtscontext.SetBarebones(ctx), id)
-	if err != nil {
-		if errors.Is(err, db.ErrNoEntries) {
-			// not an issue.
-			err = nil
-		}
+	// Gather necessary fields from
+	// deleted for cache invaliation.
+	var deleted gtsmodel.FollowRequest
+	deleted.ID = id
+
+	// Delete follow with given URI,
+	// returning the deleted models.
+	if _, err := r.db.NewDelete().
+		Model(&deleted).
+		Where("? = ?", bun.Ident("id"), id).
+		Returning("?, ?",
+			bun.Ident("account_id"),
+			bun.Ident("target_account_id"),
+		).
+		Exec(ctx); err != nil &&
+		!errors.Is(err, db.ErrNoEntries) {
 		return err
 	}
 
-	// Drop this now-cached follow request on return after delete.
-	defer r.state.Caches.GTS.FollowRequest.Invalidate("ID", id)
+	// Invalidate cached follow with URI, manually
+	// call invalidate hook in case not cached.
+	r.state.Caches.DB.FollowRequest.Invalidate("ID", id)
+	r.state.Caches.OnInvalidateFollowRequest(&deleted)
 
-	// Finally delete followreq from DB.
-	_, err = r.db.NewDelete().
-		Table("follow_requests").
-		Where("? = ?", bun.Ident("id"), id).
-		Exec(ctx)
-	return err
+	return nil
 }
 
 func (r *relationshipDB) DeleteFollowRequestByURI(ctx context.Context, uri string) error {
-	// Load followreq into cache before attempting a delete,
-	// as we need it cached in order to trigger the invalidate
-	// callback. This in turn invalidates others.
-	_, err := r.GetFollowRequestByURI(gtscontext.SetBarebones(ctx), uri)
-	if err != nil {
-		if errors.Is(err, db.ErrNoEntries) {
-			// not an issue.
-			err = nil
-		}
+	// Gather necessary fields from
+	// deleted for cache invaliation.
+	var deleted gtsmodel.FollowRequest
+
+	// Delete follow with given URI,
+	// returning the deleted models.
+	if _, err := r.db.NewDelete().
+		Model(&deleted).
+		Where("? = ?", bun.Ident("uri"), uri).
+		Returning("?, ?, ?",
+			bun.Ident("id"),
+			bun.Ident("account_id"),
+			bun.Ident("target_account_id"),
+		).
+		Exec(ctx); err != nil &&
+		!errors.Is(err, db.ErrNoEntries) {
 		return err
 	}
 
-	// Drop this now-cached follow request on return after delete.
-	defer r.state.Caches.GTS.FollowRequest.Invalidate("URI", uri)
+	// Invalidate cached follow with URI, manually
+	// call invalidate hook in case not cached.
+	r.state.Caches.DB.FollowRequest.Invalidate("URI", uri)
+	r.state.Caches.OnInvalidateFollowRequest(&deleted)
 
-	// Finally delete followreq from DB.
-	_, err = r.db.NewDelete().
-		Table("follow_requests").
-		Where("? = ?", bun.Ident("uri"), uri).
-		Exec(ctx)
-	return err
+	return nil
 }
 
 func (r *relationshipDB) DeleteAccountFollowRequests(ctx context.Context, accountID string) error {
-	var followReqIDs []string
+	// Gather necessary fields from
+	// deleted for cache invaliation.
+	var deleted []*gtsmodel.FollowRequest
 
-	// Get full list of IDs.
-	if _, err := r.db.
-		NewSelect().
-		Column("id").
-		Table("follow_requests").
+	// Delete all follows either from
+	// account, or targeting account,
+	// returning the deleted models.
+	if _, err := r.db.NewDelete().
+		Model(&deleted).
 		WhereOr("? = ? OR ? = ?",
 			bun.Ident("account_id"),
 			accountID,
 			bun.Ident("target_account_id"),
 			accountID,
 		).
-		Exec(ctx, &followReqIDs); err != nil {
+		Returning("?, ?, ?",
+			bun.Ident("id"),
+			bun.Ident("account_id"),
+			bun.Ident("target_account_id"),
+		).
+		Exec(ctx); err != nil &&
+		!errors.Is(err, db.ErrNoEntries) {
 		return err
 	}
 
-	defer func() {
-		// Invalidate all account's incoming / outoing follow requests on return.
-		r.state.Caches.GTS.FollowRequest.Invalidate("AccountID", accountID)
-		r.state.Caches.GTS.FollowRequest.Invalidate("TargetAccountID", accountID)
-	}()
+	// Invalidate all account's incoming / outoing follows requests.
+	r.state.Caches.DB.FollowRequest.Invalidate("AccountID", accountID)
+	r.state.Caches.DB.FollowRequest.Invalidate("TargetAccountID", accountID)
 
-	// Load all followreqs into cache, this *really* isn't
-	// great but it is the only way we can ensure we invalidate
-	// all related caches correctly (e.g. visibility).
-	_, err := r.GetAccountFollowRequests(ctx, accountID, nil)
-	if err != nil && !errors.Is(err, db.ErrNoEntries) {
-		return err
+	// In case not all follow were in
+	// cache, manually call invalidate hooks.
+	for _, followReq := range deleted {
+		r.state.Caches.OnInvalidateFollowRequest(followReq)
 	}
 
-	// Finally delete all from DB.
-	_, err = r.db.NewDelete().
-		Table("follow_requests").
-		Where("? IN (?)", bun.Ident("id"), bun.In(followReqIDs)).
-		Exec(ctx)
-	return err
+	return nil
 }

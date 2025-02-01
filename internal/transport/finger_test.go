@@ -31,7 +31,7 @@ type FingerTestSuite struct {
 }
 
 func (suite *FingerTestSuite) TestFinger() {
-	wc := suite.state.Caches.GTS.Webfinger
+	wc := suite.state.Caches.Webfinger
 	suite.Equal(0, wc.Len(), "expect webfinger cache to be empty")
 
 	_, err := suite.transport.Finger(context.TODO(), "brand_new_person", "unknown-instance.com")
@@ -42,8 +42,20 @@ func (suite *FingerTestSuite) TestFinger() {
 	suite.Equal(0, wc.Len(), "expect webfinger cache to be empty for normal webfinger request")
 }
 
+func (suite *FingerTestSuite) TestFingerPunycode() {
+	wc := suite.state.Caches.Webfinger
+	suite.Equal(0, wc.Len(), "expect webfinger cache to be empty")
+
+	_, err := suite.transport.Finger(context.TODO(), "brand_new_person", "pünycöde.example.org")
+	if err != nil {
+		suite.FailNow(err.Error())
+	}
+
+	suite.Equal(0, wc.Len(), "expect webfinger cache to be empty for normal webfinger request")
+}
+
 func (suite *FingerTestSuite) TestFingerWithHostMeta() {
-	wc := suite.state.Caches.GTS.Webfinger
+	wc := suite.state.Caches.Webfinger
 	suite.Equal(0, wc.Len(), "expect webfinger cache to be empty")
 
 	_, err := suite.transport.Finger(context.TODO(), "someone", "misconfigured-instance.com")
@@ -60,7 +72,7 @@ func (suite *FingerTestSuite) TestFingerWithHostMetaCacheStrategy() {
 		suite.T().Skip("this test is flaky on CI for as of yet unknown reasons")
 	}
 
-	wc := suite.state.Caches.GTS.Webfinger
+	wc := suite.state.Caches.Webfinger
 
 	// Reset the sweep frequency so nothing interferes with the test
 	wc.Stop()

@@ -11,7 +11,7 @@ EXPECT=$(cat << "EOF"
     "accounts-registration-open": true,
     "advanced-cookies-samesite": "strict",
     "advanced-csp-extra-uris": [],
-    "advanced-header-filter-mode": "",
+    "advanced-header-filter-mode": "block",
     "advanced-rate-limit-exceptions": [
         "192.0.2.0/24",
         "127.0.0.1/32"
@@ -32,6 +32,8 @@ EXPECT=$(cat << "EOF"
         "block-mem-ratio": 2,
         "boost-of-ids-mem-ratio": 3,
         "client-mem-ratio": 0.1,
+        "conversation-last-status-ids-mem-ratio": 2,
+        "conversation-mem-ratio": 1,
         "emoji-category-mem-ratio": 0.1,
         "emoji-mem-ratio": 3,
         "filter-keyword-mem-ratio": 0.5,
@@ -41,10 +43,13 @@ EXPECT=$(cat << "EOF"
         "follow-mem-ratio": 2,
         "follow-request-ids-mem-ratio": 2,
         "follow-request-mem-ratio": 2,
+        "following-tag-ids-mem-ratio": 2,
         "in-reply-to-ids-mem-ratio": 3,
         "instance-mem-ratio": 1,
-        "list-entry-mem-ratio": 2,
+        "interaction-request-mem-ratio": 1,
+        "list-ids-mem-ratio": 2,
         "list-mem-ratio": 1,
+        "listed-ids-mem-ratio": 2,
         "marker-mem-ratio": 0.5,
         "media-mem-ratio": 4,
         "memory-target": 104857600,
@@ -55,6 +60,7 @@ EXPECT=$(cat << "EOF"
         "poll-vote-ids-mem-ratio": 2,
         "poll-vote-mem-ratio": 2,
         "report-mem-ratio": 1,
+        "sin-bin-status-mem-ratio": 0.5,
         "status-bookmark-ids-mem-ratio": 2,
         "status-bookmark-mem-ratio": 0.5,
         "status-fave-ids-mem-ratio": 3,
@@ -76,6 +82,7 @@ EXPECT=$(cat << "EOF"
     "db-max-open-conns-multiplier": 3,
     "db-password": "hunter2",
     "db-port": 6969,
+    "db-postgres-connection-string": "",
     "db-sqlite-busy-timeout": 1000000000,
     "db-sqlite-cache-size": 0,
     "db-sqlite-journal-mode": "DELETE",
@@ -90,7 +97,7 @@ EXPECT=$(cat << "EOF"
     "http-client": {
         "allow-ips": [],
         "block-ips": [],
-        "timeout": 10000000000,
+        "timeout": 30000000000,
         "tls-insecure-skip-verify": false
     },
     "instance-deliver-to-shared-inboxes": false,
@@ -121,9 +128,12 @@ EXPECT=$(cat << "EOF"
     "media-description-min-chars": 69,
     "media-emoji-local-max-size": 420,
     "media-emoji-remote-max-size": 420,
-    "media-image-max-size": 420,
+    "media-ffmpeg-pool-size": 8,
+    "media-image-size-hint": 5242880,
+    "media-local-max-size": 420,
     "media-remote-cache-days": 30,
-    "media-video-max-size": 420,
+    "media-remote-max-size": 420,
+    "media-video-size-hint": 41943040,
     "metrics-auth-enabled": false,
     "metrics-auth-password": "",
     "metrics-auth-username": "",
@@ -168,6 +178,7 @@ EXPECT=$(cat << "EOF"
     "storage-s3-bucket": "gts",
     "storage-s3-endpoint": "localhost:9000",
     "storage-s3-proxy": true,
+    "storage-s3-redirect-url": "",
     "storage-s3-secret-key": "miniostorage",
     "storage-s3-use-ssl": false,
     "syslog-address": "127.0.0.1:6969",
@@ -205,6 +216,7 @@ GTS_BIND_ADDRESS='127.0.0.1' \
 GTS_PORT=6969 \
 GTS_TRUSTED_PROXIES='127.0.0.1/32,docker.host.local' \
 GTS_DB_TYPE='sqlite' \
+GTS_DB_POSTGRES_CONNECTION_STRING='' \
 GTS_DB_ADDRESS=':memory:' \
 GTS_DB_PORT=6969 \
 GTS_DB_USER='sex-haver' \
@@ -232,13 +244,16 @@ GTS_ACCOUNTS_ALLOW_CUSTOM_CSS=true \
 GTS_ACCOUNTS_CUSTOM_CSS_LENGTH=5000 \
 GTS_ACCOUNTS_REGISTRATION_OPEN=true \
 GTS_ACCOUNTS_REASON_REQUIRED=false \
-GTS_MEDIA_IMAGE_MAX_SIZE=420 \
-GTS_MEDIA_VIDEO_MAX_SIZE=420 \
 GTS_MEDIA_DESCRIPTION_MIN_CHARS=69 \
 GTS_MEDIA_DESCRIPTION_MAX_CHARS=5000 \
+GTS_MEDIA_IMAGE_SIZE_HINT='5MiB' \
+GTS_MEDIA_LOCAL_MAX_SIZE=420 \
+GTS_MEDIA_REMOTE_MAX_SIZE=420 \
 GTS_MEDIA_REMOTE_CACHE_DAYS=30 \
 GTS_MEDIA_EMOJI_LOCAL_MAX_SIZE=420 \
 GTS_MEDIA_EMOJI_REMOTE_MAX_SIZE=420 \
+GTS_MEDIA_FFMPEG_POOL_SIZE=8 \
+GTS_MEDIA_VIDEO_SIZE_HINT='40MiB' \
 GTS_METRICS_AUTH_ENABLED=false \
 GTS_METRICS_ENABLED=false \
 GTS_STORAGE_BACKEND='local' \
@@ -248,6 +263,7 @@ GTS_STORAGE_S3_SECRET_KEY='miniostorage' \
 GTS_STORAGE_S3_ENDPOINT='localhost:9000' \
 GTS_STORAGE_S3_USE_SSL='false' \
 GTS_STORAGE_S3_PROXY='true' \
+GTS_STORAGE_S3_REDIRECT_URL='' \
 GTS_STORAGE_S3_BUCKET='gts' \
 GTS_STATUSES_MAX_CHARS=69 \
 GTS_STATUSES_CW_MAX_CHARS=420 \
@@ -285,6 +301,7 @@ GTS_ADVANCED_RATE_LIMIT_REQUESTS=6969 \
 GTS_ADVANCED_SENDER_MULTIPLIER=-1 \
 GTS_ADVANCED_THROTTLING_MULTIPLIER=-1 \
 GTS_ADVANCED_THROTTLING_RETRY_AFTER='10s' \
+GTS_ADVANCED_HEADER_FILTER_MODE='block' \
 GTS_REQUEST_ID_HEADER='X-Trace-Id' \
 go run ./cmd/gotosocial/... --config-path internal/config/testdata/test.yaml debug config)
 

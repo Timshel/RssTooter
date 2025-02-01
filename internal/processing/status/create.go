@@ -45,7 +45,7 @@ func (p *Processor) Create(
 	ctx context.Context,
 	requester *gtsmodel.Account,
 	application *gtsmodel.Application,
-	form *apimodel.AdvancedStatusCreateForm,
+	form *apimodel.StatusCreateRequest,
 ) (
 	*apimodel.Status,
 	gtserror.WithCode,
@@ -78,6 +78,10 @@ func (p *Processor) Create(
 		Sensitive:                &form.Sensitive,
 		CreatedWithApplicationID: application.ID,
 		Text:                     form.Status,
+
+		// Assume not pending approval; this may
+		// change when permissivity is checked.
+		PendingApproval: util.Ptr(false),
 	}
 
 	if form.Poll != nil {
@@ -117,8 +121,14 @@ func (p *Processor) Create(
 		return nil, errWithCode
 	}
 
-	if err := processVisibility(form, requester.Settings.Privacy, status); err != nil {
+	if err := p.processVisibility(ctx, form, requester.Settings.Privacy, status); err != nil {
 		return nil, gtserror.NewErrorInternalError(err)
+	}
+
+	// Process policy AFTER visibility as it relies
+	// on status.Visibility and form.Visibility being set.
+	if errWithCode := processInteractionPolicy(form, requester.Settings, status); errWithCode != nil {
+		return nil, errWithCode
 	}
 
 	if err := processLanguage(form, requester.Settings.Language, status); err != nil {
@@ -158,11 +168,30 @@ func (p *Processor) Create(
 		}
 	}
 
+	// If the new status replies to a status that
+	// replies to us, use our reply as an implicit
+	// accept of any pending interaction.
+	implicitlyAccepted, errWithCode := p.implicitlyAccept(ctx,
+		requester, status,
+	)
+	if errWithCode != nil {
+		return nil, errWithCode
+	}
+
+	// If we ended up implicitly accepting, mark the
+	// replied-to status as no longer pending approval
+	// so it's serialized properly via the API.
+	if implicitlyAccepted {
+		status.InReplyTo.PendingApproval = util.Ptr(false)
+	}
+
 	return p.c.GetAPIStatus(ctx, requester, status)
 }
 
 func (p *Processor) processInReplyTo(ctx context.Context, requester *gtsmodel.Account, status *gtsmodel.Status, inReplyToID string) gtserror.WithCode {
 	if inReplyToID == "" {
+		// Not a reply.
+		// Nothing to do.
 		return nil
 	}
 
@@ -185,10 +214,53 @@ func (p *Processor) processInReplyTo(ctx context.Context, requester *gtsmodel.Ac
 		return errWithCode
 	}
 
-	if !*inReplyTo.Replyable {
-		const text = "in-reply-to status marked as not replyable"
-		return gtserror.NewErrorForbidden(errors.New(text), text)
+	// Ensure valid reply target for requester.
+	policyResult, err := p.intFilter.StatusReplyable(ctx,
+		requester,
+		inReplyTo,
+	)
+	if err != nil {
+		err := gtserror.Newf("error seeing if status %s is replyable: %w", status.ID, err)
+		return gtserror.NewErrorInternalError(err)
 	}
+
+	if policyResult.Forbidden() {
+		const errText = "you do not have permission to reply to this status"
+		err := gtserror.New(errText)
+		return gtserror.NewErrorForbidden(err, errText)
+	}
+
+	// Derive pendingApproval status.
+	var pendingApproval bool
+	switch {
+	case policyResult.WithApproval():
+		// We're allowed to do
+		// this pending approval.
+		pendingApproval = true
+
+	case policyResult.MatchedOnCollection():
+		// We're permitted to do this, but since
+		// we matched due to presence in a followers
+		// or following collection, we should mark
+		// as pending approval and wait until we can
+		// prove it's been Accepted by the target.
+		pendingApproval = true
+
+		if *inReplyTo.Local {
+			// If the target is local we don't need
+			// to wait for an Accept from remote,
+			// we can just preapprove it and have
+			// the processor create the Accept.
+			status.PreApproved = true
+		}
+
+	case policyResult.Permitted():
+		// We're permitted to do this
+		// based on another kind of match.
+		pendingApproval = false
+	}
+
+	status.PendingApproval = &pendingApproval
 
 	// Set status fields from inReplyTo.
 	status.InReplyToID = inReplyTo.ID
@@ -239,7 +311,7 @@ func (p *Processor) processThreadID(ctx context.Context, status *gtsmodel.Status
 	return nil
 }
 
-func (p *Processor) processMediaIDs(ctx context.Context, form *apimodel.AdvancedStatusCreateForm, thisAccountID string, status *gtsmodel.Status) gtserror.WithCode {
+func (p *Processor) processMediaIDs(ctx context.Context, form *apimodel.StatusCreateRequest, thisAccountID string, status *gtsmodel.Status) gtserror.WithCode {
 	if form.MediaIDs == nil {
 		return nil
 	}
@@ -286,80 +358,103 @@ func (p *Processor) processMediaIDs(ctx context.Context, form *apimodel.Advanced
 	return nil
 }
 
-func processVisibility(form *apimodel.AdvancedStatusCreateForm, accountDefaultVis gtsmodel.Visibility, status *gtsmodel.Status) error {
-	// by default all flags are set to true
-	federated := true
-	boostable := true
-	replyable := true
-	likeable := true
-
-	// If visibility isn't set on the form, then just take the account default.
-	// If that's also not set, take the default for the whole instance.
-	var vis gtsmodel.Visibility
+func (p *Processor) processVisibility(
+	ctx context.Context,
+	form *apimodel.StatusCreateRequest,
+	accountDefaultVis gtsmodel.Visibility,
+	status *gtsmodel.Status,
+) error {
 	switch {
+	// Visibility set on form, use that.
 	case form.Visibility != "":
-		vis = typeutils.APIVisToVis(form.Visibility)
+		status.Visibility = typeutils.APIVisToVis(form.Visibility)
+
+	// Fall back to account default, set
+	// this back on the form for later use.
 	case accountDefaultVis != "":
-		vis = accountDefaultVis
+		status.Visibility = accountDefaultVis
+		form.Visibility = p.converter.VisToAPIVis(ctx, accountDefaultVis)
+
+	// What? Fall back to global default, set
+	// this back on the form for later use.
 	default:
-		vis = gtsmodel.VisibilityDefault
+		status.Visibility = gtsmodel.VisibilityDefault
+		form.Visibility = p.converter.VisToAPIVis(ctx, gtsmodel.VisibilityDefault)
 	}
 
-	switch vis {
-	case gtsmodel.VisibilityPublic:
-		// for public, there's no need to change any of the advanced flags from true regardless of what the user filled out
-		break
-	case gtsmodel.VisibilityUnlocked:
-		// for unlocked the user can set any combination of flags they like so look at them all to see if they're set and then apply them
-		if form.Federated != nil {
-			federated = *form.Federated
-		}
+	// Set federated according to "local_only" field,
+	// assuming federated (ie., not local-only) by default.
+	localOnly := util.PtrOrValue(form.LocalOnly, false)
+	status.Federated = util.Ptr(!localOnly)
 
-		if form.Boostable != nil {
-			boostable = *form.Boostable
-		}
-
-		if form.Replyable != nil {
-			replyable = *form.Replyable
-		}
-
-		if form.Likeable != nil {
-			likeable = *form.Likeable
-		}
-
-	case gtsmodel.VisibilityFollowersOnly, gtsmodel.VisibilityMutualsOnly:
-		// for followers or mutuals only, boostable will *always* be false, but the other fields can be set so check and apply them
-		boostable = false
-
-		if form.Federated != nil {
-			federated = *form.Federated
-		}
-
-		if form.Replyable != nil {
-			replyable = *form.Replyable
-		}
-
-		if form.Likeable != nil {
-			likeable = *form.Likeable
-		}
-
-	case gtsmodel.VisibilityDirect:
-		// direct is pretty easy: there's only one possible setting so return it
-		federated = true
-		boostable = false
-		replyable = true
-		likeable = true
-	}
-
-	status.Visibility = vis
-	status.Federated = &federated
-	status.Boostable = &boostable
-	status.Replyable = &replyable
-	status.Likeable = &likeable
 	return nil
 }
 
-func processLanguage(form *apimodel.AdvancedStatusCreateForm, accountDefaultLanguage string, status *gtsmodel.Status) error {
+func processInteractionPolicy(
+	form *apimodel.StatusCreateRequest,
+	settings *gtsmodel.AccountSettings,
+	status *gtsmodel.Status,
+) gtserror.WithCode {
+
+	// If policy is set on the
+	// form then prefer this.
+	//
+	// TODO: prevent scope widening by
+	// limiting interaction policy if
+	// inReplyTo status has a stricter
+	// interaction policy than this one.
+	if form.InteractionPolicy != nil {
+		p, err := typeutils.APIInteractionPolicyToInteractionPolicy(
+			form.InteractionPolicy,
+			form.Visibility,
+		)
+
+		if err != nil {
+			errWithCode := gtserror.NewErrorBadRequest(err, err.Error())
+			return errWithCode
+		}
+
+		status.InteractionPolicy = p
+		return nil
+	}
+
+	switch status.Visibility {
+
+	case gtsmodel.VisibilityPublic:
+		// Take account's default "public" policy if set.
+		if p := settings.InteractionPolicyPublic; p != nil {
+			status.InteractionPolicy = p
+		}
+
+	case gtsmodel.VisibilityUnlocked:
+		// Take account's default "unlisted" policy if set.
+		if p := settings.InteractionPolicyUnlocked; p != nil {
+			status.InteractionPolicy = p
+		}
+
+	case gtsmodel.VisibilityFollowersOnly,
+		gtsmodel.VisibilityMutualsOnly:
+		// Take account's default followers-only policy if set.
+		// TODO: separate policy for mutuals-only vis.
+		if p := settings.InteractionPolicyFollowersOnly; p != nil {
+			status.InteractionPolicy = p
+		}
+
+	case gtsmodel.VisibilityDirect:
+		// Take account's default direct policy if set.
+		if p := settings.InteractionPolicyDirect; p != nil {
+			status.InteractionPolicy = p
+		}
+	}
+
+	// If no policy set by now, status interaction
+	// policy will be stored as nil, which just means
+	// "fall back to global default policy". We avoid
+	// setting it explicitly to save space.
+	return nil
+}
+
+func processLanguage(form *apimodel.StatusCreateRequest, accountDefaultLanguage string, status *gtsmodel.Status) error {
 	if form.Language != "" {
 		status.Language = form.Language
 	} else {
@@ -371,7 +466,7 @@ func processLanguage(form *apimodel.AdvancedStatusCreateForm, accountDefaultLang
 	return nil
 }
 
-func (p *Processor) processContent(ctx context.Context, parseMention gtsmodel.ParseMentionFunc, form *apimodel.AdvancedStatusCreateForm, status *gtsmodel.Status) error {
+func (p *Processor) processContent(ctx context.Context, parseMention gtsmodel.ParseMentionFunc, form *apimodel.StatusCreateRequest, status *gtsmodel.Status) error {
 	if form.ContentType == "" {
 		// If content type wasn't specified, use the author's preferred content-type.
 		contentType := apimodel.StatusContentType(status.Account.Settings.StatusContentType)
@@ -441,22 +536,16 @@ func (p *Processor) processContent(ctx context.Context, parseMention gtsmodel.Pa
 	}
 
 	// Gather all the database IDs from each of the gathered status mentions, tags, and emojis.
-	status.MentionIDs = gatherIDs(status.Mentions, func(mention *gtsmodel.Mention) string { return mention.ID })
-	status.TagIDs = gatherIDs(status.Tags, func(tag *gtsmodel.Tag) string { return tag.ID })
-	status.EmojiIDs = gatherIDs(status.Emojis, func(emoji *gtsmodel.Emoji) string { return emoji.ID })
+	status.MentionIDs = util.Gather(nil, status.Mentions, func(mention *gtsmodel.Mention) string { return mention.ID })
+	status.TagIDs = util.Gather(nil, status.Tags, func(tag *gtsmodel.Tag) string { return tag.ID })
+	status.EmojiIDs = util.Gather(nil, status.Emojis, func(emoji *gtsmodel.Emoji) string { return emoji.ID })
+
+	if status.ContentWarning != "" && len(status.AttachmentIDs) > 0 {
+		// If a content-warning is set, and
+		// the status contains media, always
+		// set the status sensitive flag.
+		status.Sensitive = util.Ptr(true)
+	}
 
 	return nil
-}
-
-// gatherIDs is a small utility function to gather IDs from a slice of type T.
-func gatherIDs[T any](in []T, getID func(T) string) []string {
-	if getID == nil {
-		// move nil check out loop.
-		panic("nil getID function")
-	}
-	ids := make([]string, len(in))
-	for i, t := range in {
-		ids[i] = getID(t)
-	}
-	return ids
 }

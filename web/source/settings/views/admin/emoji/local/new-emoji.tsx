@@ -23,7 +23,7 @@ import useShortcode from "./use-shortcode";
 import useFormSubmit from "../../../../lib/form/submit";
 import { TextInput, FileInput } from "../../../../components/form/inputs";
 import { CategorySelect } from '../category-select';
-import FakeToot from "../../../../components/fake-toot";
+import { FakeStatus } from "../../../../components/status";
 import MutationButton from "../../../../components/form/mutation-button";
 import { useAddEmojiMutation } from "../../../../lib/query/admin/custom-emoji";
 import { useInstanceV1Query } from "../../../../lib/query/gts-api";
@@ -103,9 +103,9 @@ export default function NewEmojiForm() {
 		<div>
 			<h2>Add new custom emoji</h2>
 
-			<FakeToot>
+			<FakeStatus>
 				Look at this new custom emoji {emojiOrShortcode} isn&apos;t it cool?
-			</FakeToot>
+			</FakeStatus>
 
 			<form onSubmit={submitForm} className="form-flex">
 				<FileInput
@@ -117,6 +117,8 @@ export default function NewEmojiForm() {
 				<TextInput
 					field={form.shortcode}
 					label="Shortcode, must be unique among the instance's local emoji"
+					autoCapitalize="none"
+					spellCheck="false"
 					{...{pattern: "^\\w{2,30}$"}}
 				/>
 

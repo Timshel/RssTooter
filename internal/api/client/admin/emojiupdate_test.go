@@ -20,14 +20,16 @@ package admin_test
 import (
 	"context"
 	"encoding/json"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/suite"
 	"github.com/superseriousbusiness/gotosocial/internal/api/client/admin"
 	apimodel "github.com/superseriousbusiness/gotosocial/internal/api/model"
+	apiutil "github.com/superseriousbusiness/gotosocial/internal/api/util"
 	"github.com/superseriousbusiness/gotosocial/internal/gtsmodel"
 	"github.com/superseriousbusiness/gotosocial/testrig"
 )
@@ -42,7 +44,7 @@ func (suite *EmojiUpdateTestSuite) TestEmojiUpdateNewCategory() {
 
 	// set up the request
 	requestBody, w, err := testrig.CreateMultipartFormData(
-		"", "",
+		nil,
 		map[string][]string{
 			"category": {"New Category"}, // this category doesn't exist yet
 			"type":     {"modify"},
@@ -53,7 +55,7 @@ func (suite *EmojiUpdateTestSuite) TestEmojiUpdateNewCategory() {
 	bodyBytes := requestBody.Bytes()
 	recorder := httptest.NewRecorder()
 	ctx := suite.newContext(recorder, http.MethodPost, bodyBytes, admin.EmojiPathWithID, w.FormDataContentType())
-	ctx.AddParam(admin.IDKey, testEmoji.ID)
+	ctx.AddParam(apiutil.IDKey, testEmoji.ID)
 
 	// call the handler
 	suite.adminModule.EmojiPATCHHandler(ctx)
@@ -66,7 +68,7 @@ func (suite *EmojiUpdateTestSuite) TestEmojiUpdateNewCategory() {
 	defer result.Body.Close()
 
 	// check the response
-	b, err := ioutil.ReadAll(result.Body)
+	b, err := io.ReadAll(result.Body)
 	suite.NoError(err)
 	suite.NotEmpty(b)
 
@@ -98,19 +100,19 @@ func (suite *EmojiUpdateTestSuite) TestEmojiUpdateNewCategory() {
 	suite.Equal("image/png", dbEmoji.ImageContentType)
 	suite.Equal("image/png", dbEmoji.ImageStaticContentType)
 	suite.Equal(36702, dbEmoji.ImageFileSize)
-	suite.Equal(10413, dbEmoji.ImageStaticFileSize)
+	suite.Equal(6092, dbEmoji.ImageStaticFileSize)
 	suite.False(*dbEmoji.Disabled)
 	suite.NotEmpty(dbEmoji.URI)
 	suite.True(*dbEmoji.VisibleInPicker)
 	suite.NotEmpty(dbEmoji.CategoryID)
 
 	// emoji should be in storage
-	emojiBytes, err := suite.storage.Get(ctx, dbEmoji.ImagePath)
+	entry, err := suite.storage.Storage.Stat(ctx, dbEmoji.ImagePath)
 	suite.NoError(err)
-	suite.Len(emojiBytes, dbEmoji.ImageFileSize)
-	emojiStaticBytes, err := suite.storage.Get(ctx, dbEmoji.ImageStaticPath)
+	suite.Equal(int64(dbEmoji.ImageFileSize), entry.Size)
+	entry, err = suite.storage.Storage.Stat(ctx, dbEmoji.ImageStaticPath)
 	suite.NoError(err)
-	suite.Len(emojiStaticBytes, dbEmoji.ImageStaticFileSize)
+	suite.Equal(int64(dbEmoji.ImageStaticFileSize), entry.Size)
 }
 
 func (suite *EmojiUpdateTestSuite) TestEmojiUpdateSwitchCategory() {
@@ -119,7 +121,7 @@ func (suite *EmojiUpdateTestSuite) TestEmojiUpdateSwitchCategory() {
 
 	// set up the request
 	requestBody, w, err := testrig.CreateMultipartFormData(
-		"", "",
+		nil,
 		map[string][]string{
 			"type":     {"modify"},
 			"category": {"cute stuff"},
@@ -130,7 +132,7 @@ func (suite *EmojiUpdateTestSuite) TestEmojiUpdateSwitchCategory() {
 	bodyBytes := requestBody.Bytes()
 	recorder := httptest.NewRecorder()
 	ctx := suite.newContext(recorder, http.MethodPost, bodyBytes, admin.EmojiPathWithID, w.FormDataContentType())
-	ctx.AddParam(admin.IDKey, testEmoji.ID)
+	ctx.AddParam(apiutil.IDKey, testEmoji.ID)
 
 	// call the handler
 	suite.adminModule.EmojiPATCHHandler(ctx)
@@ -143,7 +145,7 @@ func (suite *EmojiUpdateTestSuite) TestEmojiUpdateSwitchCategory() {
 	defer result.Body.Close()
 
 	// check the response
-	b, err := ioutil.ReadAll(result.Body)
+	b, err := io.ReadAll(result.Body)
 	suite.NoError(err)
 	suite.NotEmpty(b)
 
@@ -175,19 +177,19 @@ func (suite *EmojiUpdateTestSuite) TestEmojiUpdateSwitchCategory() {
 	suite.Equal("image/png", dbEmoji.ImageContentType)
 	suite.Equal("image/png", dbEmoji.ImageStaticContentType)
 	suite.Equal(36702, dbEmoji.ImageFileSize)
-	suite.Equal(10413, dbEmoji.ImageStaticFileSize)
+	suite.Equal(6092, dbEmoji.ImageStaticFileSize)
 	suite.False(*dbEmoji.Disabled)
 	suite.NotEmpty(dbEmoji.URI)
 	suite.True(*dbEmoji.VisibleInPicker)
 	suite.NotEmpty(dbEmoji.CategoryID)
 
 	// emoji should be in storage
-	emojiBytes, err := suite.storage.Get(ctx, dbEmoji.ImagePath)
+	entry, err := suite.storage.Storage.Stat(ctx, dbEmoji.ImagePath)
 	suite.NoError(err)
-	suite.Len(emojiBytes, dbEmoji.ImageFileSize)
-	emojiStaticBytes, err := suite.storage.Get(ctx, dbEmoji.ImageStaticPath)
+	suite.Equal(int64(dbEmoji.ImageFileSize), entry.Size)
+	entry, err = suite.storage.Storage.Stat(ctx, dbEmoji.ImageStaticPath)
 	suite.NoError(err)
-	suite.Len(emojiStaticBytes, dbEmoji.ImageStaticFileSize)
+	suite.Equal(int64(dbEmoji.ImageStaticFileSize), entry.Size)
 }
 
 func (suite *EmojiUpdateTestSuite) TestEmojiUpdateCopyRemoteToLocal() {
@@ -196,7 +198,7 @@ func (suite *EmojiUpdateTestSuite) TestEmojiUpdateCopyRemoteToLocal() {
 
 	// set up the request
 	requestBody, w, err := testrig.CreateMultipartFormData(
-		"", "",
+		nil,
 		map[string][]string{
 			"type":      {"copy"},
 			"category":  {"emojis i stole"},
@@ -208,7 +210,7 @@ func (suite *EmojiUpdateTestSuite) TestEmojiUpdateCopyRemoteToLocal() {
 	bodyBytes := requestBody.Bytes()
 	recorder := httptest.NewRecorder()
 	ctx := suite.newContext(recorder, http.MethodPost, bodyBytes, admin.EmojiPathWithID, w.FormDataContentType())
-	ctx.AddParam(admin.IDKey, testEmoji.ID)
+	ctx.AddParam(apiutil.IDKey, testEmoji.ID)
 
 	// call the handler
 	suite.adminModule.EmojiPATCHHandler(ctx)
@@ -221,7 +223,7 @@ func (suite *EmojiUpdateTestSuite) TestEmojiUpdateCopyRemoteToLocal() {
 	defer result.Body.Close()
 
 	// check the response
-	b, err := ioutil.ReadAll(result.Body)
+	b, err := io.ReadAll(result.Body)
 	suite.NoError(err)
 	suite.NotEmpty(b)
 
@@ -253,19 +255,19 @@ func (suite *EmojiUpdateTestSuite) TestEmojiUpdateCopyRemoteToLocal() {
 	suite.Equal("image/png", dbEmoji.ImageContentType)
 	suite.Equal("image/png", dbEmoji.ImageStaticContentType)
 	suite.Equal(10889, dbEmoji.ImageFileSize)
-	suite.Equal(10672, dbEmoji.ImageStaticFileSize)
+	suite.Equal(8965, dbEmoji.ImageStaticFileSize)
 	suite.False(*dbEmoji.Disabled)
 	suite.NotEmpty(dbEmoji.URI)
 	suite.True(*dbEmoji.VisibleInPicker)
 	suite.NotEmpty(dbEmoji.CategoryID)
 
 	// emoji should be in storage
-	emojiBytes, err := suite.storage.Get(ctx, dbEmoji.ImagePath)
+	entry, err := suite.storage.Storage.Stat(ctx, dbEmoji.ImagePath)
 	suite.NoError(err)
-	suite.Len(emojiBytes, dbEmoji.ImageFileSize)
-	emojiStaticBytes, err := suite.storage.Get(ctx, dbEmoji.ImageStaticPath)
+	suite.Equal(int64(dbEmoji.ImageFileSize), entry.Size)
+	entry, err = suite.storage.Storage.Stat(ctx, dbEmoji.ImageStaticPath)
 	suite.NoError(err)
-	suite.Len(emojiStaticBytes, dbEmoji.ImageStaticFileSize)
+	suite.Equal(int64(dbEmoji.ImageStaticFileSize), entry.Size)
 }
 
 func (suite *EmojiUpdateTestSuite) TestEmojiUpdateDisableEmoji() {
@@ -274,7 +276,7 @@ func (suite *EmojiUpdateTestSuite) TestEmojiUpdateDisableEmoji() {
 
 	// set up the request
 	requestBody, w, err := testrig.CreateMultipartFormData(
-		"", "",
+		nil,
 		map[string][]string{
 			"type": {"disable"},
 		})
@@ -284,7 +286,7 @@ func (suite *EmojiUpdateTestSuite) TestEmojiUpdateDisableEmoji() {
 	bodyBytes := requestBody.Bytes()
 	recorder := httptest.NewRecorder()
 	ctx := suite.newContext(recorder, http.MethodPost, bodyBytes, admin.EmojiPathWithID, w.FormDataContentType())
-	ctx.AddParam(admin.IDKey, testEmoji.ID)
+	ctx.AddParam(apiutil.IDKey, testEmoji.ID)
 
 	// call the handler
 	suite.adminModule.EmojiPATCHHandler(ctx)
@@ -297,7 +299,7 @@ func (suite *EmojiUpdateTestSuite) TestEmojiUpdateDisableEmoji() {
 	defer result.Body.Close()
 
 	// check the response
-	b, err := ioutil.ReadAll(result.Body)
+	b, err := io.ReadAll(result.Body)
 	suite.NoError(err)
 	suite.NotEmpty(b)
 
@@ -315,7 +317,7 @@ func (suite *EmojiUpdateTestSuite) TestEmojiUpdateDisableLocalEmoji() {
 
 	// set up the request
 	requestBody, w, err := testrig.CreateMultipartFormData(
-		"", "",
+		nil,
 		map[string][]string{
 			"type": {"disable"},
 		})
@@ -325,7 +327,7 @@ func (suite *EmojiUpdateTestSuite) TestEmojiUpdateDisableLocalEmoji() {
 	bodyBytes := requestBody.Bytes()
 	recorder := httptest.NewRecorder()
 	ctx := suite.newContext(recorder, http.MethodPost, bodyBytes, admin.EmojiPathWithID, w.FormDataContentType())
-	ctx.AddParam(admin.IDKey, testEmoji.ID)
+	ctx.AddParam(apiutil.IDKey, testEmoji.ID)
 
 	// call the handler
 	suite.adminModule.EmojiPATCHHandler(ctx)
@@ -336,10 +338,95 @@ func (suite *EmojiUpdateTestSuite) TestEmojiUpdateDisableLocalEmoji() {
 	defer result.Body.Close()
 
 	// check the response
-	b, err := ioutil.ReadAll(result.Body)
+	b, err := io.ReadAll(result.Body)
 	suite.NoError(err)
 
 	suite.Equal(`{"error":"Bad Request: emoji 01F8MH9H8E4VG3KDYJR9EGPXCQ is not a remote emoji, cannot disable it via this endpoint"}`, string(b))
+}
+
+func (suite *EmojiUpdateTestSuite) TestEmojiUpdateModify() {
+	testEmoji := &gtsmodel.Emoji{}
+	*testEmoji = *suite.testEmojis["rainbow"]
+
+	// set up the request
+	requestBody, w, err := testrig.CreateMultipartFormData(
+		testrig.FileToDataF("image", "../../../../testrig/media/kip-original.gif"),
+		map[string][]string{
+			"type": {"modify"},
+		})
+	if err != nil {
+		panic(err)
+	}
+	bodyBytes := requestBody.Bytes()
+	recorder := httptest.NewRecorder()
+	ctx := suite.newContext(recorder, http.MethodPost, bodyBytes, admin.EmojiPathWithID, w.FormDataContentType())
+	ctx.AddParam(apiutil.IDKey, testEmoji.ID)
+
+	// call the handler
+	suite.adminModule.EmojiPATCHHandler(ctx)
+	suite.Equal(http.StatusOK, recorder.Code)
+
+	// 2. we should have no error message in the result body
+	result := recorder.Result()
+	defer result.Body.Close()
+
+	// check the response
+	b, err := io.ReadAll(result.Body)
+	suite.NoError(err)
+	suite.NotEmpty(b)
+
+	// response should be an admin model emoji
+	adminEmoji := &apimodel.AdminEmoji{}
+	err = json.Unmarshal(b, adminEmoji)
+	suite.NoError(err)
+
+	// appropriate fields should be set
+	suite.Equal("rainbow", adminEmoji.Shortcode)
+	suite.NotEmpty(adminEmoji.URL)
+	suite.NotEmpty(adminEmoji.StaticURL)
+	suite.True(adminEmoji.VisibleInPicker)
+
+	// emoji should be in the db
+	dbEmoji, err := suite.db.GetEmojiByShortcodeDomain(context.Background(), adminEmoji.Shortcode, "")
+	suite.NoError(err)
+
+	// check fields on the emoji
+	suite.NotEmpty(dbEmoji.ID)
+	suite.Equal("rainbow", dbEmoji.Shortcode)
+	suite.Empty(dbEmoji.Domain)
+	suite.Empty(dbEmoji.ImageRemoteURL)
+	suite.Empty(dbEmoji.ImageStaticRemoteURL)
+	suite.Equal(adminEmoji.URL, dbEmoji.ImageURL)
+	suite.Equal(adminEmoji.StaticURL, dbEmoji.ImageStaticURL)
+
+	// Ensure image path as expected.
+	suite.NotEmpty(dbEmoji.ImagePath)
+	if !strings.HasPrefix(dbEmoji.ImagePath, suite.testAccounts["instance_account"].ID+"/emoji/original") {
+		suite.FailNow("", "image path %s not valid", dbEmoji.ImagePath)
+	}
+
+	// Ensure static image path as expected.
+	suite.NotEmpty(dbEmoji.ImageStaticPath)
+	if !strings.HasPrefix(dbEmoji.ImageStaticPath, suite.testAccounts["instance_account"].ID+"/emoji/static") {
+		suite.FailNow("", "image path %s not valid", dbEmoji.ImageStaticPath)
+	}
+
+	suite.Equal("image/gif", dbEmoji.ImageContentType)
+	suite.Equal("image/png", dbEmoji.ImageStaticContentType)
+	suite.Equal(1428, dbEmoji.ImageFileSize)
+	suite.Equal(1056, dbEmoji.ImageStaticFileSize)
+	suite.False(*dbEmoji.Disabled)
+	suite.NotEmpty(dbEmoji.URI)
+	suite.True(*dbEmoji.VisibleInPicker)
+	suite.NotEmpty(dbEmoji.CategoryID)
+
+	// emoji should be in storage
+	entry, err := suite.storage.Storage.Stat(ctx, dbEmoji.ImagePath)
+	suite.NoError(err)
+	suite.Equal(int64(dbEmoji.ImageFileSize), entry.Size)
+	entry, err = suite.storage.Storage.Stat(ctx, dbEmoji.ImageStaticPath)
+	suite.NoError(err)
+	suite.Equal(int64(dbEmoji.ImageStaticFileSize), entry.Size)
 }
 
 func (suite *EmojiUpdateTestSuite) TestEmojiUpdateModifyRemoteEmoji() {
@@ -348,7 +435,7 @@ func (suite *EmojiUpdateTestSuite) TestEmojiUpdateModifyRemoteEmoji() {
 
 	// set up the request
 	requestBody, w, err := testrig.CreateMultipartFormData(
-		"image", "../../../../testrig/media/kip-original.gif",
+		testrig.FileToDataF("image", "../../../../testrig/media/kip-original.gif"),
 		map[string][]string{
 			"type": {"modify"},
 		})
@@ -358,7 +445,7 @@ func (suite *EmojiUpdateTestSuite) TestEmojiUpdateModifyRemoteEmoji() {
 	bodyBytes := requestBody.Bytes()
 	recorder := httptest.NewRecorder()
 	ctx := suite.newContext(recorder, http.MethodPost, bodyBytes, admin.EmojiPathWithID, w.FormDataContentType())
-	ctx.AddParam(admin.IDKey, testEmoji.ID)
+	ctx.AddParam(apiutil.IDKey, testEmoji.ID)
 
 	// call the handler
 	suite.adminModule.EmojiPATCHHandler(ctx)
@@ -369,10 +456,10 @@ func (suite *EmojiUpdateTestSuite) TestEmojiUpdateModifyRemoteEmoji() {
 	defer result.Body.Close()
 
 	// check the response
-	b, err := ioutil.ReadAll(result.Body)
+	b, err := io.ReadAll(result.Body)
 	suite.NoError(err)
 
-	suite.Equal(`{"error":"Bad Request: emoji 01GD5KP5CQEE1R3X43Y1EHS2CW is not a local emoji, cannot update it via this endpoint"}`, string(b))
+	suite.Equal(`{"error":"Bad Request: cannot modify remote emoji"}`, string(b))
 }
 
 func (suite *EmojiUpdateTestSuite) TestEmojiUpdateModifyNoParams() {
@@ -381,7 +468,7 @@ func (suite *EmojiUpdateTestSuite) TestEmojiUpdateModifyNoParams() {
 
 	// set up the request
 	requestBody, w, err := testrig.CreateMultipartFormData(
-		"", "",
+		nil,
 		map[string][]string{
 			"type": {"modify"},
 		})
@@ -391,7 +478,7 @@ func (suite *EmojiUpdateTestSuite) TestEmojiUpdateModifyNoParams() {
 	bodyBytes := requestBody.Bytes()
 	recorder := httptest.NewRecorder()
 	ctx := suite.newContext(recorder, http.MethodPost, bodyBytes, admin.EmojiPathWithID, w.FormDataContentType())
-	ctx.AddParam(admin.IDKey, testEmoji.ID)
+	ctx.AddParam(apiutil.IDKey, testEmoji.ID)
 
 	// call the handler
 	suite.adminModule.EmojiPATCHHandler(ctx)
@@ -402,7 +489,7 @@ func (suite *EmojiUpdateTestSuite) TestEmojiUpdateModifyNoParams() {
 	defer result.Body.Close()
 
 	// check the response
-	b, err := ioutil.ReadAll(result.Body)
+	b, err := io.ReadAll(result.Body)
 	suite.NoError(err)
 
 	suite.Equal(`{"error":"Bad Request: emoji action type was 'modify' but no image or category name was provided"}`, string(b))
@@ -414,7 +501,7 @@ func (suite *EmojiUpdateTestSuite) TestEmojiUpdateCopyLocalToLocal() {
 
 	// set up the request
 	requestBody, w, err := testrig.CreateMultipartFormData(
-		"", "",
+		nil,
 		map[string][]string{
 			"type":      {"copy"},
 			"shortcode": {"bottoms"},
@@ -425,7 +512,7 @@ func (suite *EmojiUpdateTestSuite) TestEmojiUpdateCopyLocalToLocal() {
 	bodyBytes := requestBody.Bytes()
 	recorder := httptest.NewRecorder()
 	ctx := suite.newContext(recorder, http.MethodPost, bodyBytes, admin.EmojiPathWithID, w.FormDataContentType())
-	ctx.AddParam(admin.IDKey, testEmoji.ID)
+	ctx.AddParam(apiutil.IDKey, testEmoji.ID)
 
 	// call the handler
 	suite.adminModule.EmojiPATCHHandler(ctx)
@@ -436,10 +523,10 @@ func (suite *EmojiUpdateTestSuite) TestEmojiUpdateCopyLocalToLocal() {
 	defer result.Body.Close()
 
 	// check the response
-	b, err := ioutil.ReadAll(result.Body)
+	b, err := io.ReadAll(result.Body)
 	suite.NoError(err)
 
-	suite.Equal(`{"error":"Bad Request: emoji 01F8MH9H8E4VG3KDYJR9EGPXCQ is not a remote emoji, cannot copy it to local"}`, string(b))
+	suite.Equal(`{"error":"Bad Request: target emoji is not remote; cannot copy to local"}`, string(b))
 }
 
 func (suite *EmojiUpdateTestSuite) TestEmojiUpdateCopyEmptyShortcode() {
@@ -448,7 +535,7 @@ func (suite *EmojiUpdateTestSuite) TestEmojiUpdateCopyEmptyShortcode() {
 
 	// set up the request
 	requestBody, w, err := testrig.CreateMultipartFormData(
-		"", "",
+		nil,
 		map[string][]string{
 			"type":      {"copy"},
 			"shortcode": {""},
@@ -459,7 +546,7 @@ func (suite *EmojiUpdateTestSuite) TestEmojiUpdateCopyEmptyShortcode() {
 	bodyBytes := requestBody.Bytes()
 	recorder := httptest.NewRecorder()
 	ctx := suite.newContext(recorder, http.MethodPost, bodyBytes, admin.EmojiPathWithID, w.FormDataContentType())
-	ctx.AddParam(admin.IDKey, testEmoji.ID)
+	ctx.AddParam(apiutil.IDKey, testEmoji.ID)
 
 	// call the handler
 	suite.adminModule.EmojiPATCHHandler(ctx)
@@ -470,7 +557,7 @@ func (suite *EmojiUpdateTestSuite) TestEmojiUpdateCopyEmptyShortcode() {
 	defer result.Body.Close()
 
 	// check the response
-	b, err := ioutil.ReadAll(result.Body)
+	b, err := io.ReadAll(result.Body)
 	suite.NoError(err)
 
 	suite.Equal(`{"error":"Bad Request: shortcode  did not pass validation, must be between 2 and 30 characters, letters, numbers, and underscores only"}`, string(b))
@@ -482,7 +569,7 @@ func (suite *EmojiUpdateTestSuite) TestEmojiUpdateCopyNoShortcode() {
 
 	// set up the request
 	requestBody, w, err := testrig.CreateMultipartFormData(
-		"", "",
+		nil,
 		map[string][]string{
 			"type": {"copy"},
 		})
@@ -492,7 +579,7 @@ func (suite *EmojiUpdateTestSuite) TestEmojiUpdateCopyNoShortcode() {
 	bodyBytes := requestBody.Bytes()
 	recorder := httptest.NewRecorder()
 	ctx := suite.newContext(recorder, http.MethodPost, bodyBytes, admin.EmojiPathWithID, w.FormDataContentType())
-	ctx.AddParam(admin.IDKey, testEmoji.ID)
+	ctx.AddParam(apiutil.IDKey, testEmoji.ID)
 
 	// call the handler
 	suite.adminModule.EmojiPATCHHandler(ctx)
@@ -503,7 +590,7 @@ func (suite *EmojiUpdateTestSuite) TestEmojiUpdateCopyNoShortcode() {
 	defer result.Body.Close()
 
 	// check the response
-	b, err := ioutil.ReadAll(result.Body)
+	b, err := io.ReadAll(result.Body)
 	suite.NoError(err)
 
 	suite.Equal(`{"error":"Bad Request: emoji action type was 'copy' but no shortcode was provided"}`, string(b))
@@ -515,7 +602,7 @@ func (suite *EmojiUpdateTestSuite) TestEmojiUpdateCopyShortcodeAlreadyInUse() {
 
 	// set up the request
 	requestBody, w, err := testrig.CreateMultipartFormData(
-		"", "",
+		nil,
 		map[string][]string{
 			"type":      {"copy"},
 			"shortcode": {"rainbow"},
@@ -526,7 +613,7 @@ func (suite *EmojiUpdateTestSuite) TestEmojiUpdateCopyShortcodeAlreadyInUse() {
 	bodyBytes := requestBody.Bytes()
 	recorder := httptest.NewRecorder()
 	ctx := suite.newContext(recorder, http.MethodPost, bodyBytes, admin.EmojiPathWithID, w.FormDataContentType())
-	ctx.AddParam(admin.IDKey, testEmoji.ID)
+	ctx.AddParam(apiutil.IDKey, testEmoji.ID)
 
 	// call the handler
 	suite.adminModule.EmojiPATCHHandler(ctx)
@@ -537,10 +624,10 @@ func (suite *EmojiUpdateTestSuite) TestEmojiUpdateCopyShortcodeAlreadyInUse() {
 	defer result.Body.Close()
 
 	// check the response
-	b, err := ioutil.ReadAll(result.Body)
+	b, err := io.ReadAll(result.Body)
 	suite.NoError(err)
 
-	suite.Equal(`{"error":"Conflict: emoji with shortcode rainbow already exists on this instance"}`, string(b))
+	suite.Equal(`{"error":"Conflict: emoji with shortcode already exists"}`, string(b))
 }
 
 func TestEmojiUpdateTestSuite(t *testing.T) {

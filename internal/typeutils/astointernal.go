@@ -18,6 +18,7 @@
 package typeutils
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"net/url"
@@ -33,10 +34,24 @@ import (
 	"github.com/superseriousbusiness/gotosocial/internal/util"
 )
 
-// ASRepresentationToAccount converts a remote account/person/application representation into a gts model account.
+// ASRepresentationToAccount converts a remote account / person
+// / application representation into a gts model account.
 //
-// If accountDomain is provided then this value will be used as the account's Domain, else the AP ID host.
-func (c *Converter) ASRepresentationToAccount(ctx context.Context, accountable ap.Accountable, accountDomain string) (*gtsmodel.Account, error) {
+// If accountDomain is provided then this value will be
+// used as the account's Domain, else the AP ID host.
+//
+// If accountUsername is provided then this is used as
+// a fallback when no preferredUsername is provided. Else
+// a lack of username will result in error return.
+func (c *Converter) ASRepresentationToAccount(
+	ctx context.Context,
+	accountable ap.Accountable,
+	accountDomain string,
+	accountUsername string,
+) (
+	*gtsmodel.Account,
+	error,
+) {
 	var err error
 
 	// Extract URI from accountable
@@ -70,10 +85,17 @@ func (c *Converter) ASRepresentationToAccount(ctx context.Context, accountable a
 		return nil, gtserror.SetMalformed(err)
 	}
 
-	// Extract preferredUsername, this is a *requirement*.
-	acct.Username, err = ap.ExtractPreferredUsername(accountable)
-	if err != nil {
-		err := gtserror.Newf("unusable username for %s", uri)
+	// Set account username.
+	acct.Username = cmp.Or(
+
+		// Prefer the AP model provided username.
+		ap.ExtractPreferredUsername(accountable),
+
+		// Fallback username.
+		accountUsername,
+	)
+	if acct.Username == "" {
+		err := gtserror.Newf("missing username for %s", uri)
 		return nil, gtserror.SetMalformed(err)
 	}
 
@@ -393,15 +415,26 @@ func (c *Converter) ASStatusToStatus(ctx context.Context, statusable ap.Statusab
 		return nil, gtserror.SetMalformed(err)
 	}
 
-	// Advanced visibility toggles for this status.
-	//
-	// TODO: a lot of work to be done here -- a new type
-	// needs to be created for this in go-fed/activity.
-	// Until this is implemented, assume all true.
+	// Status was sent to us or dereffed
+	// by us so it must be federated.
 	status.Federated = util.Ptr(true)
-	status.Boostable = util.Ptr(true)
-	status.Replyable = util.Ptr(true)
-	status.Likeable = util.Ptr(true)
+
+	// Derive interaction policy for this status.
+	status.InteractionPolicy = ap.ExtractInteractionPolicy(
+		statusable,
+		status.Account,
+	)
+
+	// Set approvedByURI if present,
+	// for later dereferencing.
+	approvedByURI := ap.GetApprovedBy(statusable)
+	if approvedByURI != nil {
+		status.ApprovedByURI = approvedByURI.String()
+	}
+
+	// Assume not pending approval; this may
+	// change when permissivity is checked.
+	status.PendingApproval = util.Ptr(false)
 
 	// status.Sensitive
 	sensitive := ap.ExtractSensitive(statusable)
@@ -502,6 +535,10 @@ func (c *Converter) ASLikeToFave(ctx context.Context, likeable ap.Likeable) (*gt
 		StatusID:        target.ID,
 		Status:          target,
 		URI:             uri,
+
+		// Assume not pending approval; this may
+		// change when permissivity is checked.
+		PendingApproval: util.Ptr(false),
 	}, nil
 }
 
@@ -626,6 +663,10 @@ func (c *Converter) ASAnnounceToStatus(
 	boost.TagIDs = make([]string, 0)
 	boost.MentionIDs = make([]string, 0)
 	boost.EmojiIDs = make([]string, 0)
+
+	// Assume not pending approval; this may
+	// change when permissivity is checked.
+	boost.PendingApproval = util.Ptr(false)
 
 	// Remaining fields on the boost will be
 	// taken from the target status; it's not
@@ -832,7 +873,7 @@ func (c *Converter) getASObjectStatus(ctx context.Context, id string, with ap.Wi
 	// Check for status in database with provided object URI.
 	status, err := c.state.DB.GetStatusByURI(ctx, object[0].String())
 	if err != nil {
-		return nil, gtserror.Newf("error getting object account from database: %w", err)
+		return nil, gtserror.Newf("error getting object status from database: %w", err)
 	}
 
 	return status, nil

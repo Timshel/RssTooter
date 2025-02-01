@@ -22,6 +22,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/superseriousbusiness/gotosocial/internal/filter/interaction"
 	"github.com/superseriousbusiness/gotosocial/internal/filter/visibility"
 	"github.com/superseriousbusiness/gotosocial/internal/media"
 	"github.com/superseriousbusiness/gotosocial/internal/state"
@@ -83,14 +84,12 @@ type Dereferencer struct {
 	converter           *typeutils.Converter
 	transportController transport.Controller
 	mediaManager        *media.Manager
-	visibility          *visibility.Filter
+	visFilter           *visibility.Filter
+	intFilter           *interaction.Filter
 
-	// in-progress dereferencing emoji. we already perform
-	// locks per-status and per-account so we don't need
-	// processing maps for other media which won't often
-	// end up being repeated. worst case we run into an
-	// db.ErrAlreadyExists error which then gets handled
-	// appropriately by enrich{Account,Status}Safely().
+	// in-progress dereferencing media / emoji
+	derefMedia    map[string]*media.ProcessingMedia
+	derefMediaMu  sync.Mutex
 	derefEmojis   map[string]*media.ProcessingEmoji
 	derefEmojisMu sync.Mutex
 
@@ -105,12 +104,14 @@ type Dereferencer struct {
 	handshakesMu sync.Mutex
 }
 
-// NewDereferencer returns a Dereferencer initialized with the given parameters.
+// NewDereferencer returns a Dereferencer
+// initialized with the given parameters.
 func NewDereferencer(
 	state *state.State,
 	converter *typeutils.Converter,
 	transportController transport.Controller,
 	visFilter *visibility.Filter,
+	intFilter *interaction.Filter,
 	mediaManager *media.Manager,
 ) Dereferencer {
 	return Dereferencer{
@@ -118,7 +119,9 @@ func NewDereferencer(
 		converter:           converter,
 		transportController: transportController,
 		mediaManager:        mediaManager,
-		visibility:          visFilter,
+		visFilter:           visFilter,
+		intFilter:           intFilter,
+		derefMedia:          make(map[string]*media.ProcessingMedia),
 		derefEmojis:         make(map[string]*media.ProcessingEmoji),
 		handshakes:          make(map[string][]*url.URL),
 	}

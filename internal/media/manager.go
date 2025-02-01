@@ -20,6 +20,7 @@ package media
 import (
 	"context"
 	"io"
+	"strings"
 	"time"
 
 	"codeberg.org/gruf/go-iotools"
@@ -34,17 +35,49 @@ import (
 )
 
 var SupportedMIMETypes = []string{
-	mimeImageJpeg,
-	mimeImageGif,
-	mimeImagePng,
-	mimeImageWebp,
-	mimeVideoMp4,
+	"image/jpeg", // .jpeg
+	"image/gif",  // .gif
+	"image/webp", // .webp
+
+	"audio/mp2", // .mp2
+	"audio/mp3", // .mp3
+
+	"video/x-msvideo", // .avi
+
+	"audio/flac",   // .flac
+	"audio/x-flac", // .flac
+
+	// png types
+	"image/png",  // .png
+	"image/apng", // .apng
+
+	// ogg types
+	"audio/ogg", // .ogg
+	"video/ogg", // .ogv
+
+	// mpeg4 types
+	"audio/mp4",       // .m4a
+	"video/mp4",       // .mp4
+	"video/quicktime", // .mov
+
+	// asf types
+	"audio/x-ms-wma", // .wma
+	"video/x-ms-wmv", // .wmv
+
+	// matroska types
+	"video/webm",       // .webm
+	"audio/x-matroska", // .mka
+	"video/x-matroska", // .mkv
 }
 
 var SupportedEmojiMIMETypes = []string{
-	mimeImageGif,
-	mimeImagePng,
-	mimeImageWebp,
+	"image/jpeg", // .jpeg
+	"image/gif",  // .gif
+	"image/webp", // .webp
+
+	// png types
+	"image/png",  // .png
+	"image/apng", // .apng
 }
 
 type Manager struct {
@@ -56,331 +89,320 @@ func NewManager(state *state.State) *Manager {
 	return &Manager{state: state}
 }
 
-// PreProcessMedia begins the process of decoding
-// and storing the given data as an attachment.
-// It will return a pointer to a ProcessingMedia
-// struct upon which further actions can be performed,
-// such as getting the finished media, thumbnail,
-// attachment, etc.
-//
-//   - data: a function that the media manager can call
-//     to return a reader containing the media data.
-//   - accountID: the account that the media belongs to.
-//   - ai: optional and can be nil. Any additional information
-//     about the attachment provided will be put in the database.
-//
-// Note: unlike ProcessMedia, this will NOT
-// queue the media to be asynchronously processed.
-func (m *Manager) PreProcessMedia(
-	data DataFunc,
+// CreateMedia creates a new media attachment entry
+// in the database for given owning account ID and
+// extra information, and prepares a new processing
+// media entry to dereference it using the given
+// data function, decode the media and finish filling
+// out remaining media fields (e.g. type, path, etc).
+func (m *Manager) CreateMedia(
+	ctx context.Context,
 	accountID string,
-	ai *AdditionalMediaInfo,
-) *ProcessingMedia {
+	data DataFunc,
+	info AdditionalMediaInfo,
+) (
+	*ProcessingMedia,
+	error,
+) {
+	now := time.Now()
+
 	// Populate initial fields on the new media,
 	// leaving out fields with values we don't know
 	// yet. These will be overwritten as we go.
-	now := time.Now()
 	attachment := &gtsmodel.MediaAttachment{
 		ID:         id.NewULID(),
+		AccountID:  accountID,
+		Type:       gtsmodel.FileTypeUnknown,
+		Processing: gtsmodel.ProcessingStatusReceived,
+		Avatar:     util.Ptr(false),
+		Header:     util.Ptr(false),
+		Cached:     util.Ptr(false),
 		CreatedAt:  now,
 		UpdatedAt:  now,
-		Type:       gtsmodel.FileTypeUnknown,
-		FileMeta:   gtsmodel.FileMeta{},
-		AccountID:  accountID,
-		Processing: gtsmodel.ProcessingStatusReceived,
-		File: gtsmodel.File{
-			UpdatedAt:   now,
-			ContentType: "application/octet-stream",
-		},
-		Thumbnail: gtsmodel.Thumbnail{UpdatedAt: now},
-		Avatar:    util.Ptr(false),
-		Header:    util.Ptr(false),
-		Cached:    util.Ptr(false),
 	}
-
-	attachment.URL = uris.URIForAttachment(
-		accountID,
-		string(TypeAttachment),
-		string(SizeOriginal),
-		attachment.ID,
-		"unknown",
-	)
-
-	attachment.File.Path = uris.StoragePathForAttachment(
-		accountID,
-		string(TypeAttachment),
-		string(SizeOriginal),
-		attachment.ID,
-		"unknown",
-	)
 
 	// Check if we were provided additional info
 	// to add to the attachment, and overwrite
 	// some of the attachment fields if so.
-	if ai != nil {
-		if ai.CreatedAt != nil {
-			attachment.CreatedAt = *ai.CreatedAt
-		}
-
-		if ai.StatusID != nil {
-			attachment.StatusID = *ai.StatusID
-		}
-
-		if ai.RemoteURL != nil {
-			attachment.RemoteURL = *ai.RemoteURL
-		}
-
-		if ai.Description != nil {
-			attachment.Description = *ai.Description
-		}
-
-		if ai.ScheduledStatusID != nil {
-			attachment.ScheduledStatusID = *ai.ScheduledStatusID
-		}
-
-		if ai.Blurhash != nil {
-			attachment.Blurhash = *ai.Blurhash
-		}
-
-		if ai.Avatar != nil {
-			attachment.Avatar = ai.Avatar
-		}
-
-		if ai.Header != nil {
-			attachment.Header = ai.Header
-		}
-
-		if ai.FocusX != nil {
-			attachment.FileMeta.Focus.X = *ai.FocusX
-		}
-
-		if ai.FocusY != nil {
-			attachment.FileMeta.Focus.Y = *ai.FocusY
-		}
+	if info.CreatedAt != nil {
+		attachment.CreatedAt = *info.CreatedAt
+	}
+	if info.StatusID != nil {
+		attachment.StatusID = *info.StatusID
+	}
+	if info.RemoteURL != nil {
+		attachment.RemoteURL = *info.RemoteURL
+	}
+	if info.Description != nil {
+		attachment.Description = *info.Description
+	}
+	if info.ScheduledStatusID != nil {
+		attachment.ScheduledStatusID = *info.ScheduledStatusID
+	}
+	if info.Blurhash != nil {
+		attachment.Blurhash = *info.Blurhash
+	}
+	if info.Avatar != nil {
+		attachment.Avatar = info.Avatar
+	}
+	if info.Header != nil {
+		attachment.Header = info.Header
+	}
+	if info.FocusX != nil {
+		attachment.FileMeta.Focus.X = *info.FocusX
+	}
+	if info.FocusY != nil {
+		attachment.FileMeta.Focus.Y = *info.FocusY
 	}
 
-	processingMedia := &ProcessingMedia{
-		media:  attachment,
-		dataFn: data,
-		mgr:    m,
-	}
-
-	return processingMedia
-}
-
-// PreProcessMediaRecache refetches, reprocesses,
-// and recaches an existing attachment that has
-// been uncached via cleaner pruning.
-//
-// Note: unlike ProcessMedia, this will NOT queue
-// the media to be asychronously processed.
-func (m *Manager) PreProcessMediaRecache(
-	ctx context.Context,
-	data DataFunc,
-	attachmentID string,
-) (*ProcessingMedia, error) {
-	// Get the existing attachment from database.
-	attachment, err := m.state.DB.GetAttachmentByID(ctx, attachmentID)
+	// Store attachment in database in initial form.
+	err := m.state.DB.PutAttachment(ctx, attachment)
 	if err != nil {
 		return nil, err
 	}
 
-	processingMedia := &ProcessingMedia{
-		media:   attachment,
-		dataFn:  data,
-		recache: true, // Indicate it's a recache.
-		mgr:     m,
-	}
-
-	return processingMedia, nil
+	// Pass prepared media as ready to be cached.
+	return m.CacheMedia(attachment, data), nil
 }
 
-// PreProcessEmoji begins the process of decoding and storing
-// the given data as an emoji. It will return a pointer to a
-// ProcessingEmoji struct upon which further actions can be
-// performed, such as getting the finished media, thumbnail,
-// attachment, etc.
-//
-//   - data: function that the media manager can call
-//     to return a reader containing the emoji data.
-//   - shortcode: the emoji shortcode without the ':'s around it.
-//   - emojiID: database ID that should be used to store the emoji.
-//   - uri: ActivityPub URI/ID of the emoji.
-//   - ai: optional and can be nil. Any additional information
-//     about the emoji provided will be put in the database.
-//   - refresh: refetch/refresh the emoji.
-//
-// Note: unlike ProcessEmoji, this will NOT queue
-// the emoji to be asynchronously processed.
-func (m *Manager) PreProcessEmoji(
-	ctx context.Context,
+// CacheMedia wraps a media model (assumed already
+// inserted in the database!) with given data function
+// to perform a blocking dereference / decode operation
+// from the data stream returned.
+func (m *Manager) CacheMedia(
+	media *gtsmodel.MediaAttachment,
 	data DataFunc,
-	shortcode string,
-	emojiID string,
-	uri string,
-	ai *AdditionalEmojiInfo,
-	refresh bool,
-) (*ProcessingEmoji, error) {
-	var (
-		newPathID string
-		emoji     *gtsmodel.Emoji
-		now       = time.Now()
-	)
+) *ProcessingMedia {
+	return &ProcessingMedia{
+		media:  media,
+		dataFn: data,
+		mgr:    m,
+	}
+}
 
+// CreateEmoji creates a new emoji entry in the
+// database for given shortcode, domain and extra
+// information, and prepares a new processing emoji
+// entry to dereference it using the given data
+// function, decode the media and finish filling
+// out remaining fields (e.g. type, path, etc).
+func (m *Manager) CreateEmoji(
+	ctx context.Context,
+	shortcode string,
+	domain string,
+	data DataFunc,
+	info AdditionalEmojiInfo,
+) (
+	*ProcessingEmoji,
+	error,
+) {
+	now := time.Now()
+
+	// Generate new ID.
+	id := id.NewULID()
+
+	if domain == "" && info.URI == nil {
+		// Generate URI for local emoji.
+		uri := uris.URIForEmoji(id)
+		info.URI = &uri
+	}
+
+	// Populate initial fields on the new emoji,
+	// leaving out fields with values we don't know
+	// yet. These will be overwritten as we go.
+	emoji := &gtsmodel.Emoji{
+		ID:              id,
+		Shortcode:       shortcode,
+		Domain:          domain,
+		Disabled:        util.Ptr(false),
+		VisibleInPicker: util.Ptr(true),
+		CreatedAt:       now,
+		UpdatedAt:       now,
+	}
+
+	// Finally, create new emoji.
+	return m.createOrUpdateEmoji(ctx,
+		m.state.DB.PutEmoji,
+		data,
+		emoji,
+		info,
+	)
+}
+
+// UpdateEmoji prepares an update operation for the given emoji,
+// which is assumed to already exist in the database.
+//
+// Calling load on the returned *ProcessingEmoji will update the
+// db entry with provided extra information, ensure emoji images
+// are cached, and use new storage paths for the dereferenced media
+// files to skirt around browser caching of the old files.
+func (m *Manager) UpdateEmoji(
+	ctx context.Context,
+	emoji *gtsmodel.Emoji,
+	data DataFunc,
+	info AdditionalEmojiInfo,
+) (
+	*ProcessingEmoji,
+	error,
+) {
+	// Create references to old emoji image
+	// paths before they get updated with new
+	// path ID. These are required for later
+	// deleting the old image files on refresh.
+	shortcodeDomain := emoji.ShortcodeDomain()
+	oldStaticPath := emoji.ImageStaticPath
+	oldPath := emoji.ImagePath
+
+	// Since this is a refresh we will end up storing new images at new
+	// paths, so we should wrap closer to delete old paths at completion.
+	wrapped := func(ctx context.Context) (io.ReadCloser, error) {
+
+		// Call original func.
+		rc, err := data(ctx)
+		if err != nil {
+			return nil, err
+		}
+
+		// Cast as separated reader / closer types.
+		rct, ok := rc.(*iotools.ReadCloserType)
+
+		if !ok {
+			// Allocate new read closer type.
+			rct = new(iotools.ReadCloserType)
+			rct.Reader = rc
+			rct.Closer = rc
+		}
+
+		// Wrap underlying io.Closer type to cleanup old data.
+		rct.Closer = iotools.CloserCallback(rct.Closer, func() {
+
+			// Remove any *old* emoji image file path now stream is closed.
+			if err := m.state.Storage.Delete(ctx, oldPath); err != nil &&
+				!storage.IsNotFound(err) {
+				log.Errorf(ctx, "error deleting old emoji %s from storage: %v", shortcodeDomain, err)
+			}
+
+			// Remove any *old* emoji static image file path now stream is closed.
+			if err := m.state.Storage.Delete(ctx, oldStaticPath); err != nil &&
+				!storage.IsNotFound(err) {
+				log.Errorf(ctx, "error deleting old static emoji %s from storage: %v", shortcodeDomain, err)
+			}
+		})
+
+		return rct, nil
+	}
+
+	// Update existing emoji in database.
+	processingEmoji, err := m.createOrUpdateEmoji(ctx,
+		func(ctx context.Context, emoji *gtsmodel.Emoji) error {
+			return m.state.DB.UpdateEmoji(ctx, emoji)
+		},
+		wrapped,
+		emoji,
+		info,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	// Generate a new path ID to use instead.
+	processingEmoji.newPathID = id.NewULID()
+
+	return processingEmoji, nil
+}
+
+// CacheEmoji wraps an emoji model (assumed already
+// inserted in the database!) with given data function
+// to perform a blocking dereference / decode operation
+// from the data stream returned.
+func (m *Manager) CacheEmoji(
+	ctx context.Context,
+	emoji *gtsmodel.Emoji,
+	data DataFunc,
+) (
+	*ProcessingEmoji,
+	error,
+) {
 	// Fetch the local instance account for emoji path generation.
 	instanceAcc, err := m.state.DB.GetInstanceAccount(ctx, "")
 	if err != nil {
 		return nil, gtserror.Newf("error fetching instance account: %w", err)
 	}
 
-	if refresh {
-		// Existing emoji!
+	var pathID string
 
-		emoji, err = m.state.DB.GetEmojiByID(ctx, emojiID)
-		if err != nil {
-			err = gtserror.Newf("error fetching emoji to refresh from the db: %w", err)
-			return nil, err
-		}
+	// Look for an emoji path ID that differs from its actual ID, this indicates
+	// a previous 'refresh'. We need to be sure to set this on the ProcessingEmoji{}
+	// so it knows to store the emoji under this path, and not default to emoji.ID.
+	if id := extractEmojiPathID(emoji.ImagePath); id != emoji.ID {
+		pathID = id
+	}
 
-		// Since this is a refresh, we will end up with
-		// new images stored for this emoji, so we should
-		// use an io.Closer callback to perform clean up
-		// of the original images from storage.
-		originalData := data
-		originalImagePath := emoji.ImagePath
-		originalImageStaticPath := emoji.ImageStaticPath
+	return &ProcessingEmoji{
+		newPathID: pathID,
+		instAccID: instanceAcc.ID,
+		emoji:     emoji,
+		dataFn:    data,
+		mgr:       m,
+	}, nil
+}
 
-		data = func(ctx context.Context) (io.ReadCloser, int64, error) {
-			// Call original data func.
-			rc, sz, err := originalData(ctx)
-			if err != nil {
-				return nil, 0, err
-			}
-
-			// Wrap closer to cleanup old data.
-			c := iotools.CloserCallback(rc, func() {
-				if err := m.state.Storage.Delete(ctx, originalImagePath); err != nil && !storage.IsNotFound(err) {
-					log.Errorf(ctx, "error removing old emoji %s@%s from storage: %v", emoji.Shortcode, emoji.Domain, err)
-				}
-
-				if err := m.state.Storage.Delete(ctx, originalImageStaticPath); err != nil && !storage.IsNotFound(err) {
-					log.Errorf(ctx, "error removing old static emoji %s@%s from storage: %v", emoji.Shortcode, emoji.Domain, err)
-				}
-			})
-
-			// Return newly wrapped readcloser and size.
-			return iotools.ReadCloser(rc, c), sz, nil
-		}
-
-		// Reuse existing shortcode and URI -
-		// these don't change when we refresh.
-		emoji.Shortcode = shortcode
-		emoji.URI = uri
-
-		// Use a new ID to create a new path
-		// for the new images, to get around
-		// needing to do cache invalidation.
-		newPathID, err = id.NewRandomULID()
-		if err != nil {
-			return nil, gtserror.Newf("error generating alternateID for emoji refresh: %s", err)
-		}
-
-		emoji.ImageStaticURL = uris.URIForAttachment(
-			instanceAcc.ID,
-			string(TypeEmoji),
-			string(SizeStatic),
-			newPathID,
-			// All static emojis
-			// are encoded as png.
-			mimePng,
-		)
-
-		emoji.ImageStaticPath = uris.StoragePathForAttachment(
-			instanceAcc.ID,
-			string(TypeEmoji),
-			string(SizeStatic),
-			newPathID,
-			// All static emojis
-			// are encoded as png.
-			mimePng,
-		)
-	} else {
-		// New emoji!
-
-		imageStaticURL := uris.URIForAttachment(
-			instanceAcc.ID,
-			string(TypeEmoji),
-			string(SizeStatic),
-			emojiID,
-			// All static emojis
-			// are encoded as png.
-			mimePng,
-		)
-
-		imageStaticPath := uris.StoragePathForAttachment(
-			instanceAcc.ID,
-			string(TypeEmoji),
-			string(SizeStatic),
-			emojiID,
-			// All static emojis
-			// are encoded as png.
-			mimePng,
-		)
-
-		// Populate initial fields on the new emoji,
-		// leaving out fields with values we don't know
-		// yet. These will be overwritten as we go.
-		emoji = &gtsmodel.Emoji{
-			ID:                     emojiID,
-			CreatedAt:              now,
-			UpdatedAt:              now,
-			Shortcode:              shortcode,
-			ImageStaticURL:         imageStaticURL,
-			ImageStaticPath:        imageStaticPath,
-			ImageStaticContentType: mimeImagePng,
-			ImageUpdatedAt:         now,
-			Disabled:               util.Ptr(false),
-			URI:                    uri,
-			VisibleInPicker:        util.Ptr(true),
-		}
+// createOrUpdateEmoji updates the emoji according to
+// provided additional data, and performs the actual
+// database write, finally returning an emoji ready
+// for processing (i.e. caching to local storage).
+func (m *Manager) createOrUpdateEmoji(
+	ctx context.Context,
+	storeDB func(context.Context, *gtsmodel.Emoji) error,
+	data DataFunc,
+	emoji *gtsmodel.Emoji,
+	info AdditionalEmojiInfo,
+) (
+	*ProcessingEmoji,
+	error,
+) {
+	// Fetch the local instance account for emoji path generation.
+	instanceAcc, err := m.state.DB.GetInstanceAccount(ctx, "")
+	if err != nil {
+		return nil, gtserror.Newf("error fetching instance account: %w", err)
 	}
 
 	// Check if we have additional info to add to the emoji,
 	// and overwrite some of the emoji fields if so.
-	if ai != nil {
-		if ai.CreatedAt != nil {
-			emoji.CreatedAt = *ai.CreatedAt
-		}
-
-		if ai.Domain != nil {
-			emoji.Domain = *ai.Domain
-		}
-
-		if ai.ImageRemoteURL != nil {
-			emoji.ImageRemoteURL = *ai.ImageRemoteURL
-		}
-
-		if ai.ImageStaticRemoteURL != nil {
-			emoji.ImageStaticRemoteURL = *ai.ImageStaticRemoteURL
-		}
-
-		if ai.Disabled != nil {
-			emoji.Disabled = ai.Disabled
-		}
-
-		if ai.VisibleInPicker != nil {
-			emoji.VisibleInPicker = ai.VisibleInPicker
-		}
-
-		if ai.CategoryID != nil {
-			emoji.CategoryID = *ai.CategoryID
-		}
+	if info.URI != nil {
+		emoji.URI = *info.URI
+	}
+	if info.CreatedAt != nil {
+		emoji.CreatedAt = *info.CreatedAt
+	}
+	if info.Domain != nil {
+		emoji.Domain = *info.Domain
+	}
+	if info.ImageRemoteURL != nil {
+		emoji.ImageRemoteURL = *info.ImageRemoteURL
+	}
+	if info.ImageStaticRemoteURL != nil {
+		emoji.ImageStaticRemoteURL = *info.ImageStaticRemoteURL
+	}
+	if info.Disabled != nil {
+		emoji.Disabled = info.Disabled
+	}
+	if info.VisibleInPicker != nil {
+		emoji.VisibleInPicker = info.VisibleInPicker
+	}
+	if info.CategoryID != nil {
+		emoji.CategoryID = *info.CategoryID
 	}
 
+	// Put or update emoji in database.
+	if err := storeDB(ctx, emoji); err != nil {
+		return nil, err
+	}
+
+	// Return wrapped emoji for later processing.
 	processingEmoji := &ProcessingEmoji{
+		instAccID: instanceAcc.ID,
 		emoji:     emoji,
-		existing:  refresh,
-		newPathID: newPathID,
 		dataFn:    data,
 		mgr:       m,
 	}
@@ -388,51 +410,26 @@ func (m *Manager) PreProcessEmoji(
 	return processingEmoji, nil
 }
 
-// PreProcessEmojiRecache refetches, reprocesses, and recaches
-// an existing emoji that has been uncached via cleaner pruning.
-//
-// Note: unlike ProcessEmoji, this will NOT queue the emoji to
-// be asychronously processed.
-func (m *Manager) PreProcessEmojiRecache(
-	ctx context.Context,
-	data DataFunc,
-	emojiID string,
-) (*ProcessingEmoji, error) {
-	// Get the existing emoji from the database.
-	emoji, err := m.state.DB.GetEmojiByID(ctx, emojiID)
-	if err != nil {
-		return nil, err
+// extractEmojiPathID pulls the ID used in the final path segment of an emoji path (can be URL).
+func extractEmojiPathID(path string) string {
+	// Look for '.' indicating file ext.
+	i := strings.LastIndexByte(path, '.')
+	if i == -1 {
+		return ""
 	}
 
-	processingEmoji := &ProcessingEmoji{
-		emoji:    emoji,
-		dataFn:   data,
-		existing: true, // Indicate recache.
-		mgr:      m,
+	// Strip ext.
+	path = path[:i]
+
+	// Look for '/' of final path sep.
+	i = strings.LastIndexByte(path, '/')
+	if i == -1 {
+		return ""
 	}
 
-	return processingEmoji, nil
-}
+	// Strip up to
+	// final segment.
+	path = path[i+1:]
 
-// ProcessEmoji will call PreProcessEmoji, followed
-// by queuing the emoji in the emoji worker queue.
-func (m *Manager) ProcessEmoji(
-	ctx context.Context,
-	data DataFunc,
-	shortcode string,
-	id string,
-	uri string,
-	ai *AdditionalEmojiInfo,
-	refresh bool,
-) (*ProcessingEmoji, error) {
-	// Create a new processing emoji object for this emoji request.
-	emoji, err := m.PreProcessEmoji(ctx, data, shortcode, id, uri, ai, refresh)
-	if err != nil {
-		return nil, err
-	}
-
-	// Attempt to add emoji item to the worker queue.
-	m.state.Workers.Media.Queue.Push(emoji.Process)
-
-	return emoji, nil
+	return path
 }

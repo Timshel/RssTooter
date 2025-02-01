@@ -15,6 +15,8 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+//go:build !nometrics
+
 package metrics
 
 import (
@@ -30,9 +32,13 @@ type Module struct {
 }
 
 func New() *Module {
-	// Use our own gzip handler.
+	// Let prometheus use "identity", ie., no compression,
+	// or "gzip", to match our own gzip compression middleware.
 	opts := promhttp.HandlerOpts{
-		DisableCompression: true,
+		OfferedCompressions: []promhttp.Compression{
+			promhttp.Identity,
+			promhttp.Gzip,
+		},
 	}
 
 	// Instrument handler itself.

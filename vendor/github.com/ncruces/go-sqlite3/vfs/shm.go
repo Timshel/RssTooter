@@ -1,4 +1,4 @@
-//go:build (darwin || linux) && (amd64 || arm64 || riscv64) && !(sqlite3_flock || sqlite3_noshm || sqlite3_nosys)
+//go:build (darwin || linux) && (386 || arm || amd64 || arm64 || riscv64 || ppc64le) && !(sqlite3_flock || sqlite3_noshm || sqlite3_nosys)
 
 package vfs
 
@@ -6,10 +6,13 @@ import (
 	"context"
 	"io"
 	"os"
+	"sync"
+	"time"
 
-	"github.com/ncruces/go-sqlite3/internal/util"
 	"github.com/tetratelabs/wazero/api"
 	"golang.org/x/sys/unix"
+
+	"github.com/ncruces/go-sqlite3/internal/util"
 )
 
 // SupportsSharedMemory is false on platforms that do not support shared memory.
@@ -44,11 +47,15 @@ func NewSharedMemory(path string, flags OpenFlag) SharedMemory {
 	}
 }
 
+var _ blockingSharedMemory = &vfsShm{}
+
 type vfsShm struct {
 	*os.File
 	path     string
 	regions  []*util.MappedRegion
 	readOnly bool
+	blocking bool
+	sync.Mutex
 }
 
 func (s *vfsShm) shmOpen() _ErrorCode {
@@ -68,7 +75,7 @@ func (s *vfsShm) shmOpen() _ErrorCode {
 	}
 
 	// Dead man's switch.
-	if lock, rc := osGetLock(s.File, _SHM_DMS, 1); rc != _OK {
+	if lock, rc := osTestLock(s.File, _SHM_DMS, 1); rc != _OK {
 		return _IOERR_LOCK
 	} else if lock == unix.F_WRLCK {
 		return _BUSY
@@ -76,6 +83,13 @@ func (s *vfsShm) shmOpen() _ErrorCode {
 		if s.readOnly {
 			return _READONLY_CANTINIT
 		}
+		// Do not use a blocking lock here.
+		// If the lock cannot be obtained immediately,
+		// it means some other connection is truncating the file.
+		// And after it has done so, it will not release its lock,
+		// but only downgrade it to a shared lock.
+		// So no point in blocking here.
+		// The call below to obtain the shared DMS lock may use a blocking lock.
 		if rc := osWriteLock(s.File, _SHM_DMS, 1, 0); rc != _OK {
 			return rc
 		}
@@ -83,7 +97,7 @@ func (s *vfsShm) shmOpen() _ErrorCode {
 			return _IOERR_SHMOPEN
 		}
 	}
-	if rc := osReadLock(s.File, _SHM_DMS, 1, 0); rc != _OK {
+	if rc := osReadLock(s.File, _SHM_DMS, 1, time.Millisecond); rc != _OK {
 		return rc
 	}
 	return _OK
@@ -150,13 +164,18 @@ func (s *vfsShm) shmLock(offset, n int32, flags _ShmFlag) _ErrorCode {
 		panic(util.AssertErr())
 	}
 
+	var timeout time.Duration
+	if s.blocking {
+		timeout = time.Millisecond
+	}
+
 	switch {
 	case flags&_SHM_UNLOCK != 0:
 		return osUnlock(s.File, _SHM_BASE+int64(offset), int64(n))
 	case flags&_SHM_SHARED != 0:
-		return osReadLock(s.File, _SHM_BASE+int64(offset), int64(n), 0)
+		return osReadLock(s.File, _SHM_BASE+int64(offset), int64(n), timeout)
 	case flags&_SHM_EXCLUSIVE != 0:
-		return osWriteLock(s.File, _SHM_BASE+int64(offset), int64(n), 0)
+		return osWriteLock(s.File, _SHM_BASE+int64(offset), int64(n), timeout)
 	default:
 		panic(util.AssertErr())
 	}
@@ -180,4 +199,14 @@ func (s *vfsShm) shmUnmap(delete bool) {
 	}
 	s.Close()
 	s.File = nil
+}
+
+func (s *vfsShm) shmBarrier() {
+	s.Lock()
+	//lint:ignore SA2001 memory barrier.
+	s.Unlock()
+}
+
+func (s *vfsShm) shmEnableBlocking(block bool) {
+	s.blocking = block
 }

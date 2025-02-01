@@ -18,9 +18,8 @@
 package cache
 
 import (
-	"time"
+	"sync/atomic"
 
-	"codeberg.org/gruf/go-cache/v3/ttl"
 	"codeberg.org/gruf/go-structr"
 	"github.com/superseriousbusiness/gotosocial/internal/cache/domain"
 	"github.com/superseriousbusiness/gotosocial/internal/config"
@@ -28,7 +27,7 @@ import (
 	"github.com/superseriousbusiness/gotosocial/internal/log"
 )
 
-type GTSCaches struct {
+type DBCaches struct {
 	// Account provides access to the gtsmodel Account database cache.
 	Account StructCache[*gtsmodel.Account]
 
@@ -56,6 +55,12 @@ type GTSCaches struct {
 	// Client provides access to the gtsmodel Client database cache.
 	Client StructCache[*gtsmodel.Client]
 
+	// Conversation provides access to the gtsmodel Conversation database cache.
+	Conversation StructCache[*gtsmodel.Conversation]
+
+	// ConversationLastStatusIDs provides access to the conversation last status IDs database cache.
+	ConversationLastStatusIDs SliceCache[string]
+
 	// DomainAllow provides access to the domain allow database cache.
 	DomainAllow *domain.Cache
 
@@ -82,10 +87,23 @@ type GTSCaches struct {
 
 	// FollowIDs provides access to the follower / following IDs database cache.
 	// THIS CACHE IS KEYED AS THE FOLLOWING {prefix}{accountID} WHERE PREFIX IS:
-	// - '>'  for following IDs
-	// - 'l>' for local following IDs
-	// - '<'  for follower IDs
-	// - 'l<' for local follower IDs
+	//
+	// - '>{$accountID}'  for following IDs
+	//   e.g. FollowIDs.Load(">" + account.ID, func() {})
+	//   which will load a slice of follows IDs FROM account.
+	//
+	// - 'l>{$accountID}' for local following IDs
+	//   e.g. FollowIDs.Load("l>" + account.ID, func() {})
+	//   which will load a slice of LOCAL follows IDs FROM account.
+	//
+	// - '<{$accountID}' for follower IDs
+	//   e.g. FollowIDs.Load("<" + account.ID, func() {})
+	//   which will load a slice of follows IDs TARGETTING account.
+	//
+	// - 'l<{$accountID}' for local follower IDs
+	//   e.g. FollowIDs.Load("l<" + account.ID, func() {})
+	//   which will load a slice of LOCAL follows IDs TARGETTING account.
+	//
 	FollowIDs SliceCache[string]
 
 	// FollowRequest provides access to the gtsmodel FollowRequest database cache.
@@ -93,12 +111,43 @@ type GTSCaches struct {
 
 	// FollowRequestIDs provides access to the follow requester / requesting IDs database
 	// cache. THIS CACHE IS KEYED AS THE FOLLOWING {prefix}{accountID} WHERE PREFIX IS:
-	// - '>'  for following IDs
-	// - '<'  for follower IDs
+	//
+	// - '>{$accountID}'  for follow request IDs
+	//   e.g. FollowRequestIDs.Load(">" + account.ID, func() {})
+	//   which will load a slice of follow request IDs TARGETTING account.
+	//
+	// - '<{$accountID}'  for follow request IDs
+	//   e.g. FollowRequestIDs.Load("<" + account.ID, func() {})
+	//   which will load a slice of follow request IDs FROM account.
+	//
 	FollowRequestIDs SliceCache[string]
+
+	// FollowingTagIDs provides access to account IDs following / tag IDs followed by
+	// account db cache. THIS CACHE IS KEYED AS THE FOLLOWING {prefix}{id} WHERE:
+	//
+	// - '>{$accountID}' for tag IDs followed by account
+	//   e.g. FollowingTagIDs.Load(">" + account.ID, func() {})
+	//   which will load a slice of tag IDs followed by account.
+	//
+	// - '<{$tagIDs}' for account IDs following tag
+	//   e.g. FollowingTagIDs.Load("<" + tag.ID, func() {})
+	//   which will load a slice of account IDs following tag.
+	//
+	FollowingTagIDs SliceCache[string]
 
 	// Instance provides access to the gtsmodel Instance database cache.
 	Instance StructCache[*gtsmodel.Instance]
+
+	// LocalInstance provides caching for
+	// simple + common local instance queries.
+	LocalInstance struct {
+		Domains  atomic.Pointer[int]
+		Statuses atomic.Pointer[int]
+		Users    atomic.Pointer[int]
+	}
+
+	// InteractionRequest provides access to the gtsmodel InteractionRequest database cache.
+	InteractionRequest StructCache[*gtsmodel.InteractionRequest]
 
 	// InReplyToIDs provides access to the status in reply to IDs list database cache.
 	InReplyToIDs SliceCache[string]
@@ -106,8 +155,31 @@ type GTSCaches struct {
 	// List provides access to the gtsmodel List database cache.
 	List StructCache[*gtsmodel.List]
 
-	// ListEntry provides access to the gtsmodel ListEntry database cache.
-	ListEntry StructCache[*gtsmodel.ListEntry]
+	// ListIDs provides access to the list IDs owned by account / list IDs follow
+	// contained in db cache. THIS CACHE IS KEYED AS FOLLOWING {prefix}{id} WHERE:
+	//
+	// - 'a{$accountID}' for list IDs owned by account
+	//   e.g. ListIDs.Load("a" + account.ID, func() {})
+	//   which will load a slice of list IDs owned by account.
+	//
+	// - 'f{$followID}' for list IDs follow contained in
+	//   e.g. ListIDs.Load("f" + follow.ID, func() {})
+	//   which will load a slice of list IDs containing follow.
+	//
+	ListIDs SliceCache[string]
+
+	// ListedIDs provides access to the account IDs in list / follow IDs in
+	// list db cache. THIS CACHE IS KEYED AS FOLLOWING {prefix}{id} WHERE:
+	//
+	// - 'a{listID}' for account IDs in list ID
+	//   e.g. ListedIDs.Load("a" + list.ID, func() {})
+	//   which will load a slice of account IDs in list.
+	//
+	// - 'f{listID}' for follow IDs in list ID
+	//   e.g. ListedIDs.Load("f" + list.ID, func() {})
+	//   which will load a slice of follow IDs in list.
+	//
+	ListedIDs SliceCache[string]
 
 	// Marker provides access to the gtsmodel Marker database cache.
 	Marker StructCache[*gtsmodel.Marker]
@@ -136,13 +208,16 @@ type GTSCaches struct {
 	// Report provides access to the gtsmodel Report database cache.
 	Report StructCache[*gtsmodel.Report]
 
+	// SinBinStatus provides access to the gtsmodel SinBinStatus database cache.
+	SinBinStatus StructCache[*gtsmodel.SinBinStatus]
+
 	// Status provides access to the gtsmodel Status database cache.
 	Status StructCache[*gtsmodel.Status]
 
-	// StatusBookmark ...
+	// StatusBookmark provides access to the gtsmodel StatusBookmark database cache.
 	StatusBookmark StructCache[*gtsmodel.StatusBookmark]
 
-	// StatusBookmarkIDs ...
+	// StatusBookmarkIDs provides access to the status bookmark IDs list database cache.
 	StatusBookmarkIDs SliceCache[string]
 
 	// StatusFave provides access to the gtsmodel StatusFave database cache.
@@ -171,10 +246,6 @@ type GTSCaches struct {
 
 	// UserMuteIDs provides access to the user mute IDs database cache.
 	UserMuteIDs SliceCache[string]
-
-	// Webfinger provides access to the webfinger URL cache.
-	// TODO: move out of GTS caches since unrelated to DB.
-	Webfinger *ttl.Cache[string, string] // TTL=24hr, sweep=5min
 }
 
 // NOTE:
@@ -213,7 +284,7 @@ func (c *Caches) initAccount() {
 		return a2
 	}
 
-	c.GTS.Account.Init(structr.CacheConfig[*gtsmodel.Account]{
+	c.DB.Account.Init(structr.CacheConfig[*gtsmodel.Account]{
 		Indices: []structr.IndexConfig{
 			{Fields: "ID"},
 			{Fields: "URI"},
@@ -254,7 +325,7 @@ func (c *Caches) initAccountNote() {
 		return n2
 	}
 
-	c.GTS.AccountNote.Init(structr.CacheConfig[*gtsmodel.AccountNote]{
+	c.DB.AccountNote.Init(structr.CacheConfig[*gtsmodel.AccountNote]{
 		Indices: []structr.IndexConfig{
 			{Fields: "ID"},
 			{Fields: "AccountID,TargetAccountID"},
@@ -274,7 +345,7 @@ func (c *Caches) initAccountSettings() {
 
 	log.Infof(nil, "cache size = %d", cap)
 
-	c.GTS.AccountSettings.Init(structr.CacheConfig[*gtsmodel.AccountSettings]{
+	c.DB.AccountSettings.Init(structr.CacheConfig[*gtsmodel.AccountSettings]{
 		Indices: []structr.IndexConfig{
 			{Fields: "AccountID"},
 		},
@@ -297,7 +368,7 @@ func (c *Caches) initAccountStats() {
 
 	log.Infof(nil, "cache size = %d", cap)
 
-	c.GTS.AccountStats.Init(structr.CacheConfig[*gtsmodel.AccountStats]{
+	c.DB.AccountStats.Init(structr.CacheConfig[*gtsmodel.AccountStats]{
 		Indices: []structr.IndexConfig{
 			{Fields: "AccountID"},
 		},
@@ -326,7 +397,7 @@ func (c *Caches) initApplication() {
 		return a2
 	}
 
-	c.GTS.Application.Init(structr.CacheConfig[*gtsmodel.Application]{
+	c.DB.Application.Init(structr.CacheConfig[*gtsmodel.Application]{
 		Indices: []structr.IndexConfig{
 			{Fields: "ID"},
 			{Fields: "ClientID"},
@@ -360,7 +431,7 @@ func (c *Caches) initBlock() {
 		return b2
 	}
 
-	c.GTS.Block.Init(structr.CacheConfig[*gtsmodel.Block]{
+	c.DB.Block.Init(structr.CacheConfig[*gtsmodel.Block]{
 		Indices: []structr.IndexConfig{
 			{Fields: "ID"},
 			{Fields: "URI"},
@@ -383,7 +454,7 @@ func (c *Caches) initBlockIDs() {
 
 	log.Infof(nil, "cache size = %d", cap)
 
-	c.GTS.BlockIDs.Init(0, cap)
+	c.DB.BlockIDs.Init(0, cap)
 }
 
 func (c *Caches) initBoostOfIDs() {
@@ -394,7 +465,7 @@ func (c *Caches) initBoostOfIDs() {
 
 	log.Infof(nil, "cache size = %d", cap)
 
-	c.GTS.BoostOfIDs.Init(0, cap)
+	c.DB.BoostOfIDs.Init(0, cap)
 }
 
 func (c *Caches) initClient() {
@@ -412,7 +483,7 @@ func (c *Caches) initClient() {
 		return c2
 	}
 
-	c.GTS.Client.Init(structr.CacheConfig[*gtsmodel.Client]{
+	c.DB.Client.Init(structr.CacheConfig[*gtsmodel.Client]{
 		Indices: []structr.IndexConfig{
 			{Fields: "ID"},
 		},
@@ -423,12 +494,58 @@ func (c *Caches) initClient() {
 	})
 }
 
+func (c *Caches) initConversation() {
+	cap := calculateResultCacheMax(
+		sizeofConversation(), // model in-mem size.
+		config.GetCacheConversationMemRatio(),
+	)
+
+	log.Infof(nil, "cache size = %d", cap)
+
+	copyF := func(c1 *gtsmodel.Conversation) *gtsmodel.Conversation {
+		c2 := new(gtsmodel.Conversation)
+		*c2 = *c1
+
+		// Don't include ptr fields that
+		// will be populated separately.
+		// See internal/db/bundb/conversation.go.
+		c2.Account = nil
+		c2.OtherAccounts = nil
+		c2.LastStatus = nil
+
+		return c2
+	}
+
+	c.DB.Conversation.Init(structr.CacheConfig[*gtsmodel.Conversation]{
+		Indices: []structr.IndexConfig{
+			{Fields: "ID"},
+			{Fields: "ThreadID,AccountID,OtherAccountsKey"},
+			{Fields: "AccountID,LastStatusID"},
+			{Fields: "AccountID", Multiple: true},
+		},
+		MaxSize:    cap,
+		IgnoreErr:  ignoreErrors,
+		Copy:       copyF,
+		Invalidate: c.OnInvalidateConversation,
+	})
+}
+
+func (c *Caches) initConversationLastStatusIDs() {
+	cap := calculateSliceCacheMax(
+		config.GetCacheConversationLastStatusIDsMemRatio(),
+	)
+
+	log.Infof(nil, "cache size = %d", cap)
+
+	c.DB.ConversationLastStatusIDs.Init(0, cap)
+}
+
 func (c *Caches) initDomainAllow() {
-	c.GTS.DomainAllow = new(domain.Cache)
+	c.DB.DomainAllow = new(domain.Cache)
 }
 
 func (c *Caches) initDomainBlock() {
-	c.GTS.DomainBlock = new(domain.Cache)
+	c.DB.DomainBlock = new(domain.Cache)
 }
 
 func (c *Caches) initEmoji() {
@@ -452,7 +569,7 @@ func (c *Caches) initEmoji() {
 		return e2
 	}
 
-	c.GTS.Emoji.Init(structr.CacheConfig[*gtsmodel.Emoji]{
+	c.DB.Emoji.Init(structr.CacheConfig[*gtsmodel.Emoji]{
 		Indices: []structr.IndexConfig{
 			{Fields: "ID"},
 			{Fields: "URI"},
@@ -481,7 +598,7 @@ func (c *Caches) initEmojiCategory() {
 		return c2
 	}
 
-	c.GTS.EmojiCategory.Init(structr.CacheConfig[*gtsmodel.EmojiCategory]{
+	c.DB.EmojiCategory.Init(structr.CacheConfig[*gtsmodel.EmojiCategory]{
 		Indices: []structr.IndexConfig{
 			{Fields: "ID"},
 			{Fields: "Name"},
@@ -515,7 +632,7 @@ func (c *Caches) initFilter() {
 		return filter2
 	}
 
-	c.GTS.Filter.Init(structr.CacheConfig[*gtsmodel.Filter]{
+	c.DB.Filter.Init(structr.CacheConfig[*gtsmodel.Filter]{
 		Indices: []structr.IndexConfig{
 			{Fields: "ID"},
 			{Fields: "AccountID", Multiple: true},
@@ -552,7 +669,7 @@ func (c *Caches) initFilterKeyword() {
 		return filterKeyword2
 	}
 
-	c.GTS.FilterKeyword.Init(structr.CacheConfig[*gtsmodel.FilterKeyword]{
+	c.DB.FilterKeyword.Init(structr.CacheConfig[*gtsmodel.FilterKeyword]{
 		Indices: []structr.IndexConfig{
 			{Fields: "ID"},
 			{Fields: "AccountID", Multiple: true},
@@ -585,7 +702,7 @@ func (c *Caches) initFilterStatus() {
 		return filterStatus2
 	}
 
-	c.GTS.FilterStatus.Init(structr.CacheConfig[*gtsmodel.FilterStatus]{
+	c.DB.FilterStatus.Init(structr.CacheConfig[*gtsmodel.FilterStatus]{
 		Indices: []structr.IndexConfig{
 			{Fields: "ID"},
 			{Fields: "AccountID", Multiple: true},
@@ -619,7 +736,7 @@ func (c *Caches) initFollow() {
 		return f2
 	}
 
-	c.GTS.Follow.Init(structr.CacheConfig[*gtsmodel.Follow]{
+	c.DB.Follow.Init(structr.CacheConfig[*gtsmodel.Follow]{
 		Indices: []structr.IndexConfig{
 			{Fields: "ID"},
 			{Fields: "URI"},
@@ -642,7 +759,7 @@ func (c *Caches) initFollowIDs() {
 
 	log.Infof(nil, "cache size = %d", cap)
 
-	c.GTS.FollowIDs.Init(0, cap)
+	c.DB.FollowIDs.Init(0, cap)
 }
 
 func (c *Caches) initFollowRequest() {
@@ -667,7 +784,7 @@ func (c *Caches) initFollowRequest() {
 		return f2
 	}
 
-	c.GTS.FollowRequest.Init(structr.CacheConfig[*gtsmodel.FollowRequest]{
+	c.DB.FollowRequest.Init(structr.CacheConfig[*gtsmodel.FollowRequest]{
 		Indices: []structr.IndexConfig{
 			{Fields: "ID"},
 			{Fields: "URI"},
@@ -690,7 +807,18 @@ func (c *Caches) initFollowRequestIDs() {
 
 	log.Infof(nil, "cache size = %d", cap)
 
-	c.GTS.FollowRequestIDs.Init(0, cap)
+	c.DB.FollowRequestIDs.Init(0, cap)
+}
+
+func (c *Caches) initFollowingTagIDs() {
+	// Calculate maximum cache size.
+	cap := calculateSliceCacheMax(
+		config.GetCacheFollowingTagIDsMemRatio(),
+	)
+
+	log.Infof(nil, "cache size = %d", cap)
+
+	c.DB.FollowingTagIDs.Init(0, cap)
 }
 
 func (c *Caches) initInReplyToIDs() {
@@ -701,7 +829,7 @@ func (c *Caches) initInReplyToIDs() {
 
 	log.Infof(nil, "cache size = %d", cap)
 
-	c.GTS.InReplyToIDs.Init(0, cap)
+	c.DB.InReplyToIDs.Init(0, cap)
 }
 
 func (c *Caches) initInstance() {
@@ -723,13 +851,52 @@ func (c *Caches) initInstance() {
 		i2.DomainBlock = nil
 		i2.ContactAccount = nil
 
-		return i1
+		return i2
 	}
 
-	c.GTS.Instance.Init(structr.CacheConfig[*gtsmodel.Instance]{
+	c.DB.Instance.Init(structr.CacheConfig[*gtsmodel.Instance]{
 		Indices: []structr.IndexConfig{
 			{Fields: "ID"},
 			{Fields: "Domain"},
+		},
+		MaxSize:    cap,
+		IgnoreErr:  ignoreErrors,
+		Copy:       copyF,
+		Invalidate: c.OnInvalidateInstance,
+	})
+}
+
+func (c *Caches) initInteractionRequest() {
+	// Calculate maximum cache size.
+	cap := calculateResultCacheMax(
+		sizeofInteractionRequest(),
+		config.GetCacheInteractionRequestMemRatio(),
+	)
+
+	log.Infof(nil, "cache size = %d", cap)
+
+	copyF := func(i1 *gtsmodel.InteractionRequest) *gtsmodel.InteractionRequest {
+		i2 := new(gtsmodel.InteractionRequest)
+		*i2 = *i1
+
+		// Don't include ptr fields that
+		// will be populated separately.
+		// See internal/db/bundb/interaction.go.
+		i2.Status = nil
+		i2.TargetAccount = nil
+		i2.InteractingAccount = nil
+		i2.Like = nil
+		i2.Reply = nil
+		i2.Announce = nil
+
+		return i2
+	}
+
+	c.DB.InteractionRequest.Init(structr.CacheConfig[*gtsmodel.InteractionRequest]{
+		Indices: []structr.IndexConfig{
+			{Fields: "ID"},
+			{Fields: "InteractionURI"},
+			{Fields: "URI"},
 		},
 		MaxSize:   cap,
 		IgnoreErr: ignoreErrors,
@@ -754,12 +921,11 @@ func (c *Caches) initList() {
 		// will be populated separately.
 		// See internal/db/bundb/list.go.
 		l2.Account = nil
-		l2.ListEntries = nil
 
 		return l2
 	}
 
-	c.GTS.List.Init(structr.CacheConfig[*gtsmodel.List]{
+	c.DB.List.Init(structr.CacheConfig[*gtsmodel.List]{
 		Indices: []structr.IndexConfig{
 			{Fields: "ID"},
 		},
@@ -770,37 +936,26 @@ func (c *Caches) initList() {
 	})
 }
 
-func (c *Caches) initListEntry() {
+func (c *Caches) initListIDs() {
 	// Calculate maximum cache size.
-	cap := calculateResultCacheMax(
-		sizeofListEntry(), // model in-mem size.
-		config.GetCacheListEntryMemRatio(),
+	cap := calculateSliceCacheMax(
+		config.GetCacheListIDsMemRatio(),
 	)
 
 	log.Infof(nil, "cache size = %d", cap)
 
-	copyF := func(l1 *gtsmodel.ListEntry) *gtsmodel.ListEntry {
-		l2 := new(gtsmodel.ListEntry)
-		*l2 = *l1
+	c.DB.ListIDs.Init(0, cap)
+}
 
-		// Don't include ptr fields that
-		// will be populated separately.
-		// See internal/db/bundb/list.go.
-		l2.Follow = nil
+func (c *Caches) initListedIDs() {
+	// Calculate maximum cache size.
+	cap := calculateSliceCacheMax(
+		config.GetCacheListedIDsMemRatio(),
+	)
 
-		return l2
-	}
+	log.Infof(nil, "cache size = %d", cap)
 
-	c.GTS.ListEntry.Init(structr.CacheConfig[*gtsmodel.ListEntry]{
-		Indices: []structr.IndexConfig{
-			{Fields: "ID"},
-			{Fields: "ListID", Multiple: true},
-			{Fields: "FollowID", Multiple: true},
-		},
-		MaxSize:   cap,
-		IgnoreErr: ignoreErrors,
-		Copy:      copyF,
-	})
+	c.DB.ListedIDs.Init(0, cap)
 }
 
 func (c *Caches) initMarker() {
@@ -818,7 +973,7 @@ func (c *Caches) initMarker() {
 		return m2
 	}
 
-	c.GTS.Marker.Init(structr.CacheConfig[*gtsmodel.Marker]{
+	c.DB.Marker.Init(structr.CacheConfig[*gtsmodel.Marker]{
 		Indices: []structr.IndexConfig{
 			{Fields: "AccountID,Name"},
 		},
@@ -843,7 +998,7 @@ func (c *Caches) initMedia() {
 		return m2
 	}
 
-	c.GTS.Media.Init(structr.CacheConfig[*gtsmodel.MediaAttachment]{
+	c.DB.Media.Init(structr.CacheConfig[*gtsmodel.MediaAttachment]{
 		Indices: []structr.IndexConfig{
 			{Fields: "ID"},
 		},
@@ -877,7 +1032,7 @@ func (c *Caches) initMention() {
 		return m2
 	}
 
-	c.GTS.Mention.Init(structr.CacheConfig[*gtsmodel.Mention]{
+	c.DB.Mention.Init(structr.CacheConfig[*gtsmodel.Mention]{
 		Indices: []structr.IndexConfig{
 			{Fields: "ID"},
 		},
@@ -896,7 +1051,7 @@ func (c *Caches) initMove() {
 
 	log.Infof(nil, "cache size = %d", cap)
 
-	c.GTS.Move.Init(structr.CacheConfig[*gtsmodel.Move]{
+	c.DB.Move.Init(structr.CacheConfig[*gtsmodel.Move]{
 		Indices: []structr.IndexConfig{
 			{Fields: "ID"},
 			{Fields: "URI"},
@@ -937,7 +1092,7 @@ func (c *Caches) initNotification() {
 		return n2
 	}
 
-	c.GTS.Notification.Init(structr.CacheConfig[*gtsmodel.Notification]{
+	c.DB.Notification.Init(structr.CacheConfig[*gtsmodel.Notification]{
 		Indices: []structr.IndexConfig{
 			{Fields: "ID"},
 			{Fields: "NotificationType,TargetAccountID,OriginAccountID,StatusID", AllowZero: true},
@@ -974,7 +1129,7 @@ func (c *Caches) initPoll() {
 		return p2
 	}
 
-	c.GTS.Poll.Init(structr.CacheConfig[*gtsmodel.Poll]{
+	c.DB.Poll.Init(structr.CacheConfig[*gtsmodel.Poll]{
 		Indices: []structr.IndexConfig{
 			{Fields: "ID"},
 			{Fields: "StatusID"},
@@ -1008,7 +1163,7 @@ func (c *Caches) initPollVote() {
 		return v2
 	}
 
-	c.GTS.PollVote.Init(structr.CacheConfig[*gtsmodel.PollVote]{
+	c.DB.PollVote.Init(structr.CacheConfig[*gtsmodel.PollVote]{
 		Indices: []structr.IndexConfig{
 			{Fields: "ID"},
 			{Fields: "PollID", Multiple: true},
@@ -1029,7 +1184,7 @@ func (c *Caches) initPollVoteIDs() {
 
 	log.Infof(nil, "cache size = %d", cap)
 
-	c.GTS.PollVoteIDs.Init(0, cap)
+	c.DB.PollVoteIDs.Init(0, cap)
 }
 
 func (c *Caches) initReport() {
@@ -1057,9 +1212,35 @@ func (c *Caches) initReport() {
 		return r2
 	}
 
-	c.GTS.Report.Init(structr.CacheConfig[*gtsmodel.Report]{
+	c.DB.Report.Init(structr.CacheConfig[*gtsmodel.Report]{
 		Indices: []structr.IndexConfig{
 			{Fields: "ID"},
+		},
+		MaxSize:   cap,
+		IgnoreErr: ignoreErrors,
+		Copy:      copyF,
+	})
+}
+
+func (c *Caches) initSinBinStatus() {
+	// Calculate maximum cache size.
+	cap := calculateResultCacheMax(
+		sizeofSinBinStatus(), // model in-mem size.
+		config.GetCacheSinBinStatusMemRatio(),
+	)
+
+	log.Infof(nil, "cache size = %d", cap)
+
+	copyF := func(s1 *gtsmodel.SinBinStatus) *gtsmodel.SinBinStatus {
+		s2 := new(gtsmodel.SinBinStatus)
+		*s2 = *s1
+		return s2
+	}
+
+	c.DB.SinBinStatus.Init(structr.CacheConfig[*gtsmodel.SinBinStatus]{
+		Indices: []structr.IndexConfig{
+			{Fields: "ID"},
+			{Fields: "URI"},
 		},
 		MaxSize:   cap,
 		IgnoreErr: ignoreErrors,
@@ -1098,7 +1279,7 @@ func (c *Caches) initStatus() {
 		return s2
 	}
 
-	c.GTS.Status.Init(structr.CacheConfig[*gtsmodel.Status]{
+	c.DB.Status.Init(structr.CacheConfig[*gtsmodel.Status]{
 		Indices: []structr.IndexConfig{
 			{Fields: "ID"},
 			{Fields: "URI"},
@@ -1136,7 +1317,7 @@ func (c *Caches) initStatusBookmark() {
 		return s2
 	}
 
-	c.GTS.StatusBookmark.Init(structr.CacheConfig[*gtsmodel.StatusBookmark]{
+	c.DB.StatusBookmark.Init(structr.CacheConfig[*gtsmodel.StatusBookmark]{
 		Indices: []structr.IndexConfig{
 			{Fields: "ID"},
 			{Fields: "AccountID,StatusID"},
@@ -1159,7 +1340,7 @@ func (c *Caches) initStatusBookmarkIDs() {
 
 	log.Infof(nil, "cache size = %d", cap)
 
-	c.GTS.StatusBookmarkIDs.Init(0, cap)
+	c.DB.StatusBookmarkIDs.Init(0, cap)
 }
 
 func (c *Caches) initStatusFave() {
@@ -1185,9 +1366,10 @@ func (c *Caches) initStatusFave() {
 		return f2
 	}
 
-	c.GTS.StatusFave.Init(structr.CacheConfig[*gtsmodel.StatusFave]{
+	c.DB.StatusFave.Init(structr.CacheConfig[*gtsmodel.StatusFave]{
 		Indices: []structr.IndexConfig{
 			{Fields: "ID"},
+			{Fields: "URI"},
 			{Fields: "AccountID,StatusID"},
 			{Fields: "StatusID", Multiple: true},
 		},
@@ -1206,7 +1388,7 @@ func (c *Caches) initStatusFaveIDs() {
 
 	log.Infof(nil, "cache size = %d", cap)
 
-	c.GTS.StatusFaveIDs.Init(0, cap)
+	c.DB.StatusFaveIDs.Init(0, cap)
 }
 
 func (c *Caches) initTag() {
@@ -1224,7 +1406,7 @@ func (c *Caches) initTag() {
 		return m2
 	}
 
-	c.GTS.Tag.Init(structr.CacheConfig[*gtsmodel.Tag]{
+	c.DB.Tag.Init(structr.CacheConfig[*gtsmodel.Tag]{
 		Indices: []structr.IndexConfig{
 			{Fields: "ID"},
 			{Fields: "Name"},
@@ -1249,7 +1431,7 @@ func (c *Caches) initThreadMute() {
 		return t2
 	}
 
-	c.GTS.ThreadMute.Init(structr.CacheConfig[*gtsmodel.ThreadMute]{
+	c.DB.ThreadMute.Init(structr.CacheConfig[*gtsmodel.ThreadMute]{
 		Indices: []structr.IndexConfig{
 			{Fields: "ID"},
 			{Fields: "ThreadID", Multiple: true},
@@ -1277,7 +1459,7 @@ func (c *Caches) initToken() {
 		return t2
 	}
 
-	c.GTS.Token.Init(structr.CacheConfig[*gtsmodel.Token]{
+	c.DB.Token.Init(structr.CacheConfig[*gtsmodel.Token]{
 		Indices: []structr.IndexConfig{
 			{Fields: "ID"},
 			{Fields: "Code"},
@@ -1306,7 +1488,7 @@ func (c *Caches) initTombstone() {
 		return t2
 	}
 
-	c.GTS.Tombstone.Init(structr.CacheConfig[*gtsmodel.Tombstone]{
+	c.DB.Tombstone.Init(structr.CacheConfig[*gtsmodel.Tombstone]{
 		Indices: []structr.IndexConfig{
 			{Fields: "ID"},
 			{Fields: "URI"},
@@ -1338,7 +1520,7 @@ func (c *Caches) initUser() {
 		return u2
 	}
 
-	c.GTS.User.Init(structr.CacheConfig[*gtsmodel.User]{
+	c.DB.User.Init(structr.CacheConfig[*gtsmodel.User]{
 		Indices: []structr.IndexConfig{
 			{Fields: "ID"},
 			{Fields: "AccountID"},
@@ -1374,7 +1556,7 @@ func (c *Caches) initUserMute() {
 		return u2
 	}
 
-	c.GTS.UserMute.Init(structr.CacheConfig[*gtsmodel.UserMute]{
+	c.DB.UserMute.Init(structr.CacheConfig[*gtsmodel.UserMute]{
 		Indices: []structr.IndexConfig{
 			{Fields: "ID"},
 			{Fields: "AccountID,TargetAccountID"},
@@ -1395,22 +1577,5 @@ func (c *Caches) initUserMuteIDs() {
 
 	log.Infof(nil, "cache size = %d", cap)
 
-	c.GTS.UserMuteIDs.Init(0, cap)
-}
-
-func (c *Caches) initWebfinger() {
-	// Calculate maximum cache size.
-	cap := calculateCacheMax(
-		sizeofURIStr, sizeofURIStr,
-		config.GetCacheWebfingerMemRatio(),
-	)
-
-	log.Infof(nil, "cache size = %d", cap)
-
-	c.GTS.Webfinger = new(ttl.Cache[string, string])
-	c.GTS.Webfinger.Init(
-		0,
-		cap,
-		24*time.Hour,
-	)
+	c.DB.UserMuteIDs.Init(0, cap)
 }

@@ -25,13 +25,14 @@ import (
 	"mime/multipart"
 	"strings"
 
+	"codeberg.org/gruf/go-iotools"
 	apimodel "github.com/superseriousbusiness/gotosocial/internal/api/model"
+	"github.com/superseriousbusiness/gotosocial/internal/config"
 	"github.com/superseriousbusiness/gotosocial/internal/db"
 	"github.com/superseriousbusiness/gotosocial/internal/gtserror"
 	"github.com/superseriousbusiness/gotosocial/internal/gtsmodel"
 	"github.com/superseriousbusiness/gotosocial/internal/id"
 	"github.com/superseriousbusiness/gotosocial/internal/media"
-	"github.com/superseriousbusiness/gotosocial/internal/uris"
 	"github.com/superseriousbusiness/gotosocial/internal/util"
 )
 
@@ -41,64 +42,38 @@ func (p *Processor) EmojiCreate(
 	account *gtsmodel.Account,
 	form *apimodel.EmojiCreateRequest,
 ) (*apimodel.Emoji, gtserror.WithCode) {
-	// Ensure emoji with this shortcode
-	// doesn't already exist on the instance.
-	maybeExisting, err := p.state.DB.GetEmojiByShortcodeDomain(ctx, form.Shortcode, "")
-	if err != nil && !errors.Is(err, db.ErrNoEntries) {
-		err := gtserror.Newf("error checking existence of emoji with shortcode %s: %w", form.Shortcode, err)
-		return nil, gtserror.NewErrorInternalError(err)
+
+	// Get maximum supported local emoji size.
+	maxsz := config.GetMediaEmojiLocalMaxSize()
+	maxszInt64 := int64(maxsz) // #nosec G115 -- Already validated.
+
+	// Ensure media within size bounds.
+	if form.Image.Size > maxszInt64 {
+		text := fmt.Sprintf("emoji exceeds configured max size: %s", maxsz)
+		return nil, gtserror.NewErrorBadRequest(errors.New(text), text)
 	}
 
-	if maybeExisting != nil {
-		err := fmt.Errorf("emoji with shortcode %s already exists", form.Shortcode)
-		return nil, gtserror.NewErrorConflict(err, err.Error())
-	}
-
-	// Prepare data function for emoji processing
-	// (just read data from the submitted form).
-	data := func(innerCtx context.Context) (io.ReadCloser, int64, error) {
-		f, err := form.Image.Open()
-		return f, form.Image.Size, err
-	}
-
-	// If category was supplied on the form,
-	// ensure the category exists and provide
-	// it as additional info to emoji processing.
-	var ai *media.AdditionalEmojiInfo
-	if form.CategoryName != "" {
-		category, err := p.getOrCreateEmojiCategory(ctx, form.CategoryName)
-		if err != nil {
-			return nil, gtserror.NewErrorInternalError(err)
-		}
-
-		ai = &media.AdditionalEmojiInfo{
-			CategoryID: &category.ID,
-		}
-	}
-
-	// Generate new emoji ID and URI.
-	emojiID, err := id.NewRandomULID()
+	// Open multipart file reader.
+	mpfile, err := form.Image.Open()
 	if err != nil {
-		err := gtserror.Newf("error creating id for new emoji: %w", err)
+		err := gtserror.Newf("error opening multipart file: %w", err)
 		return nil, gtserror.NewErrorInternalError(err)
 	}
 
-	emojiURI := uris.URIForEmoji(emojiID)
+	// Wrap the multipart file reader to ensure is limited to max.
+	rc, _, _ := iotools.UpdateReadCloserLimit(mpfile, maxszInt64)
+	data := func(context.Context) (io.ReadCloser, error) {
+		return rc, nil
+	}
 
-	// Begin media processing.
-	processingEmoji, err := p.mediaManager.PreProcessEmoji(ctx,
-		data, form.Shortcode, emojiID, emojiURI, ai, false,
+	// Attempt to create the new local emoji.
+	emoji, errWithCode := p.createEmoji(ctx,
+		form.Shortcode,
+		form.CategoryName,
+		data,
 	)
-	if err != nil {
-		err := gtserror.Newf("error processing emoji: %w", err)
-		return nil, gtserror.NewErrorInternalError(err)
-	}
-
-	// Complete processing immediately.
-	emoji, err := processingEmoji.LoadEmoji(ctx)
-	if err != nil {
-		err := gtserror.Newf("error loading emoji: %w", err)
-		return nil, gtserror.NewErrorInternalError(err)
+	if errWithCode != nil {
+		return nil, errWithCode
 	}
 
 	apiEmoji, err := p.converter.EmojiToAPIEmoji(ctx, emoji)
@@ -108,53 +83,6 @@ func (p *Processor) EmojiCreate(
 	}
 
 	return &apiEmoji, nil
-}
-
-// emojisGetFilterParams builds extra
-// query parameters to return as part
-// of an Emojis pageable response.
-//
-// The returned string will look like:
-//
-// "filter=domain:all,enabled,shortcode:example"
-func emojisGetFilterParams(
-	shortcode string,
-	domain string,
-	includeDisabled bool,
-	includeEnabled bool,
-) string {
-	var filterBuilder strings.Builder
-	filterBuilder.WriteString("filter=")
-
-	switch domain {
-	case "", "local":
-		// Local emojis only.
-		filterBuilder.WriteString("domain:local")
-
-	case db.EmojiAllDomains:
-		// Local or remote.
-		filterBuilder.WriteString("domain:all")
-
-	default:
-		// Specific domain only.
-		filterBuilder.WriteString("domain:" + domain)
-	}
-
-	if includeDisabled != includeEnabled {
-		if includeDisabled {
-			filterBuilder.WriteString(",disabled")
-		}
-		if includeEnabled {
-			filterBuilder.WriteString(",enabled")
-		}
-	}
-
-	if shortcode != "" {
-		// Specific shortcode only.
-		filterBuilder.WriteString(",shortcode:" + shortcode)
-	}
-
-	return filterBuilder.String()
 }
 
 // EmojisGet returns an admin view of custom
@@ -203,9 +131,9 @@ func (p *Processor) EmojisGet(
 		Items:          items,
 		Path:           "api/v1/admin/custom_emojis",
 		NextMaxIDKey:   "max_shortcode_domain",
-		NextMaxIDValue: util.ShortcodeDomain(emojis[count-1]),
+		NextMaxIDValue: emojis[count-1].ShortcodeDomain(),
 		PrevMinIDKey:   "min_shortcode_domain",
-		PrevMinIDValue: util.ShortcodeDomain(emojis[0]),
+		PrevMinIDValue: emojis[0].ShortcodeDomain(),
 		Limit:          limit,
 		ExtraQueryParams: []string{
 			emojisGetFilterParams(
@@ -287,21 +215,24 @@ func (p *Processor) EmojiDelete(
 // given id, using the provided form parameters.
 func (p *Processor) EmojiUpdate(
 	ctx context.Context,
-	id string,
+	emojiID string,
 	form *apimodel.EmojiUpdateRequest,
 ) (*apimodel.AdminEmoji, gtserror.WithCode) {
-	emoji, err := p.state.DB.GetEmojiByID(ctx, id)
+
+	// Get the emoji with given ID from the database.
+	emoji, err := p.state.DB.GetEmojiByID(ctx, emojiID)
 	if err != nil && !errors.Is(err, db.ErrNoEntries) {
-		err := gtserror.Newf("db error: %w", err)
+		err := gtserror.Newf("error fetching emoji from db: %w", err)
 		return nil, gtserror.NewErrorInternalError(err)
 	}
 
+	// Check found.
 	if emoji == nil {
-		err := gtserror.Newf("no emoji with id %s found in the db", id)
-		return nil, gtserror.NewErrorNotFound(err)
+		const text = "emoji not found"
+		return nil, gtserror.NewErrorNotFound(errors.New(text), text)
 	}
 
-	switch t := form.Type; t {
+	switch form.Type {
 
 	case apimodel.EmojiUpdateCopy:
 		return p.emojiUpdateCopy(ctx, emoji, form.Shortcode, form.CategoryName)
@@ -313,8 +244,8 @@ func (p *Processor) EmojiUpdate(
 		return p.emojiUpdateModify(ctx, emoji, form.Image, form.CategoryName)
 
 	default:
-		err := fmt.Errorf("unrecognized emoji action type %s", t)
-		return nil, gtserror.NewErrorBadRequest(err, err.Error())
+		const text = "unrecognized emoji update action type"
+		return nil, gtserror.NewErrorBadRequest(errors.New(text), text)
 	}
 }
 
@@ -342,56 +273,6 @@ func (p *Processor) EmojiCategoriesGet(
 	return apiCategories, nil
 }
 
-/*
-	UTIL FUNCTIONS
-*/
-
-// getOrCreateEmojiCategory either gets an existing
-// category with the given name from the database,
-// or, if the category doesn't yet exist, it creates
-// the category and then returns it.
-func (p *Processor) getOrCreateEmojiCategory(
-	ctx context.Context,
-	name string,
-) (*gtsmodel.EmojiCategory, error) {
-	category, err := p.state.DB.GetEmojiCategoryByName(ctx, name)
-	if err != nil && !errors.Is(err, db.ErrNoEntries) {
-		return nil, gtserror.Newf(
-			"database error trying get emoji category %s: %w",
-			name, err,
-		)
-	}
-
-	if category != nil {
-		// We had it already.
-		return category, nil
-	}
-
-	// We don't have the category yet,
-	// create it with the given name.
-	categoryID, err := id.NewRandomULID()
-	if err != nil {
-		return nil, gtserror.Newf(
-			"error generating id for new emoji category %s: %w",
-			name, err,
-		)
-	}
-
-	category = &gtsmodel.EmojiCategory{
-		ID:   categoryID,
-		Name: name,
-	}
-
-	if err := p.state.DB.PutEmojiCategory(ctx, category); err != nil {
-		return nil, gtserror.Newf(
-			"db error putting new emoji category %s: %w",
-			name, err,
-		)
-	}
-
-	return category, nil
-}
-
 // emojiUpdateCopy copies and stores the given
 // *remote* emoji as a *local* emoji, preserving
 // the same image, and using the provided shortcode.
@@ -400,99 +281,61 @@ func (p *Processor) getOrCreateEmojiCategory(
 // emoji already stored in the database + storage.
 func (p *Processor) emojiUpdateCopy(
 	ctx context.Context,
-	targetEmoji *gtsmodel.Emoji,
+	target *gtsmodel.Emoji,
 	shortcode *string,
-	category *string,
+	categoryName *string,
 ) (*apimodel.AdminEmoji, gtserror.WithCode) {
-	if targetEmoji.IsLocal() {
-		err := fmt.Errorf("emoji %s is not a remote emoji, cannot copy it to local", targetEmoji.ID)
-		return nil, gtserror.NewErrorBadRequest(err, err.Error())
+	if target.IsLocal() {
+		const text = "target emoji is not remote; cannot copy to local"
+		return nil, gtserror.NewErrorBadRequest(errors.New(text), text)
 	}
 
-	if shortcode == nil {
-		err := errors.New("no shortcode provided")
-		return nil, gtserror.NewErrorBadRequest(err, err.Error())
+	// Ensure target emoji is locally cached.
+	target, err := p.federator.RecacheEmoji(ctx,
+		target,
+	)
+	if err != nil {
+		err := gtserror.Newf("error recaching emoji %s: %w", target.ImageRemoteURL, err)
+		return nil, gtserror.NewErrorNotFound(err)
 	}
 
-	sc := *shortcode
-	if sc == "" {
-		err := errors.New("empty shortcode provided")
-		return nil, gtserror.NewErrorBadRequest(err, err.Error())
-	}
+	// Get maximum supported local emoji size.
+	maxsz := config.GetMediaEmojiLocalMaxSize()
+	maxszInt := int(maxsz) // #nosec G115 -- Already validated.
 
-	// Ensure we don't already have an emoji
-	// stored locally with this shortcode.
-	maybeExisting, err := p.state.DB.GetEmojiByShortcodeDomain(ctx, sc, "")
-	if err != nil && !errors.Is(err, db.ErrNoEntries) {
-		err := gtserror.Newf("db error checking for emoji with shortcode %s: %w", sc, err)
-		return nil, gtserror.NewErrorInternalError(err)
+	// Ensure target emoji image within size bounds.
+	if target.ImageFileSize > maxszInt {
+		text := fmt.Sprintf("emoji exceeds configured max size: %s", maxsz)
+		return nil, gtserror.NewErrorBadRequest(errors.New(text), text)
 	}
-
-	if maybeExisting != nil {
-		err := fmt.Errorf("emoji with shortcode %s already exists on this instance", sc)
-		return nil, gtserror.NewErrorConflict(err, err.Error())
-	}
-
-	// We don't have an emoji with this
-	// shortcode yet! Prepare to create it.
 
 	// Data function for copying just streams media
 	// out of storage into an additional location.
 	//
 	// This means that data for the copy persists even
 	// if the remote copied emoji gets deleted at some point.
-	data := func(ctx context.Context) (io.ReadCloser, int64, error) {
-		rc, err := p.state.Storage.GetStream(ctx, targetEmoji.ImagePath)
-		return rc, int64(targetEmoji.ImageFileSize), err
+	data := func(ctx context.Context) (io.ReadCloser, error) {
+		rc, err := p.state.Storage.GetStream(ctx, target.ImagePath)
+		return rc, err
 	}
 
-	// Generate new emoji ID and URI.
-	emojiID, err := id.NewRandomULID()
-	if err != nil {
-		err := gtserror.Newf("error creating id for new emoji: %w", err)
-		return nil, gtserror.NewErrorInternalError(err)
-	}
-
-	emojiURI := uris.URIForEmoji(emojiID)
-
-	// If category was supplied, ensure the
-	// category exists and provide it as
-	// additional info to emoji processing.
-	var ai *media.AdditionalEmojiInfo
-	if category != nil && *category != "" {
-		category, err := p.getOrCreateEmojiCategory(ctx, *category)
-		if err != nil {
-			return nil, gtserror.NewErrorInternalError(err)
-		}
-
-		ai = &media.AdditionalEmojiInfo{
-			CategoryID: &category.ID,
-		}
-	}
-
-	// Begin media processing.
-	processingEmoji, err := p.mediaManager.PreProcessEmoji(ctx,
-		data, sc, emojiID, emojiURI, ai, false,
+	// Attempt to create the new local emoji.
+	emoji, errWithCode := p.createEmoji(ctx,
+		util.PtrOrZero(shortcode),
+		util.PtrOrZero(categoryName),
+		data,
 	)
+	if errWithCode != nil {
+		return nil, errWithCode
+	}
+
+	apiEmoji, err := p.converter.EmojiToAdminAPIEmoji(ctx, emoji)
 	if err != nil {
-		err := gtserror.Newf("error processing emoji: %w", err)
+		err := gtserror.Newf("error converting emoji: %w", err)
 		return nil, gtserror.NewErrorInternalError(err)
 	}
 
-	// Complete processing immediately.
-	newEmoji, err := processingEmoji.LoadEmoji(ctx)
-	if err != nil {
-		err := gtserror.Newf("error loading emoji: %w", err)
-		return nil, gtserror.NewErrorInternalError(err)
-	}
-
-	adminEmoji, err := p.converter.EmojiToAdminAPIEmoji(ctx, newEmoji)
-	if err != nil {
-		err := gtserror.Newf("error converting emoji %s to admin emoji: %w", newEmoji.ID, err)
-		return nil, gtserror.NewErrorInternalError(err)
-	}
-
-	return adminEmoji, nil
+	return apiEmoji, nil
 }
 
 // emojiUpdateDisable marks the given *remote*
@@ -521,7 +364,7 @@ func (p *Processor) emojiUpdateDisable(
 
 	adminEmoji, err := p.converter.EmojiToAdminAPIEmoji(ctx, emoji)
 	if err != nil {
-		err := gtserror.Newf("error converting emoji %s to admin emoji: %w", emoji.ID, err)
+		err := gtserror.Newf("error converting emoji: %w", err)
 		return nil, gtserror.NewErrorInternalError(err)
 	}
 
@@ -541,104 +384,252 @@ func (p *Processor) emojiUpdateModify(
 	ctx context.Context,
 	emoji *gtsmodel.Emoji,
 	image *multipart.FileHeader,
-	category *string,
+	categoryName *string,
 ) (*apimodel.AdminEmoji, gtserror.WithCode) {
 	if !emoji.IsLocal() {
-		err := fmt.Errorf("emoji %s is not a local emoji, cannot update it via this endpoint", emoji.ID)
-		return nil, gtserror.NewErrorBadRequest(err, err.Error())
+		const text = "cannot modify remote emoji"
+		return nil, gtserror.NewErrorBadRequest(errors.New(text), text)
 	}
 
 	// Ensure there's actually something to update.
-	if image == nil && category == nil {
-		err := errors.New("neither new category nor new image set, cannot update")
-		return nil, gtserror.NewErrorBadRequest(err, err.Error())
+	if image == nil && categoryName == nil {
+		const text = "no changes were provided"
+		return nil, gtserror.NewErrorBadRequest(errors.New(text), text)
 	}
 
-	// Only update category
-	// if it's changed.
-	var (
-		newCategory      *gtsmodel.EmojiCategory
-		newCategoryID    string
-		updateCategoryID bool
-	)
+	// Check if we need to
+	// set a new category ID.
+	var newCategoryID *string
+	switch {
+	case categoryName == nil:
+		// No changes.
 
-	if category != nil {
-		catName := *category
-		if catName != "" {
-			// Set new category.
-			var err error
-			newCategory, err = p.getOrCreateEmojiCategory(ctx, catName)
-			if err != nil {
-				err := gtserror.Newf("error getting or creating category: %w", err)
-				return nil, gtserror.NewErrorInternalError(err)
-			}
+	case *categoryName == "":
+		// Emoji category was unset.
+		newCategoryID = util.Ptr("")
+		emoji.CategoryID = ""
+		emoji.Category = nil
 
-			newCategoryID = newCategory.ID
-		} else {
-			// Clear existing category.
-			newCategoryID = ""
+	case *categoryName != "":
+		// A category was provided, get or create relevant emoji category.
+		category, errWithCode := p.mustGetEmojiCategory(ctx, *categoryName)
+		if errWithCode != nil {
+			return nil, errWithCode
 		}
 
-		updateCategoryID = emoji.CategoryID != newCategoryID
+		// Update emoji category if
+		// it's different from before.
+		if category.ID != emoji.CategoryID {
+			newCategoryID = &category.ID
+			emoji.CategoryID = category.ID
+			emoji.Category = category
+		}
 	}
 
-	// Only update image
-	// if one is provided.
-	var updateImage bool
-	if image != nil && image.Size != 0 {
-		updateImage = true
-	}
+	// Check whether any image changes were requested.
+	imageUpdated := (image != nil && image.Size > 0)
 
-	if updateCategoryID && !updateImage {
-		// Only updating category; we only
-		// need to do a db update for this.
-		emoji.CategoryID = newCategoryID
-		emoji.Category = newCategory
+	if !imageUpdated && newCategoryID != nil {
+		// Only updating category; only a single database update required.
 		if err := p.state.DB.UpdateEmoji(ctx, emoji, "category_id"); err != nil {
-			err := gtserror.Newf("db error updating emoji %s: %w", emoji.ID, err)
+			err := gtserror.Newf("error updating emoji in db: %w", err)
 			return nil, gtserror.NewErrorInternalError(err)
 		}
-	} else if updateImage {
+	} else if imageUpdated {
+		var err error
+
 		// Updating image and maybe categoryID.
 		// We can do both at the same time :)
 
-		// Set data function to provided image.
-		data := func(ctx context.Context) (io.ReadCloser, int64, error) {
-			i, err := image.Open()
-			return i, image.Size, err
+		// Get maximum supported local emoji size.
+		maxsz := config.GetMediaEmojiLocalMaxSize()
+		maxszInt64 := int64(maxsz) // #nosec G115 -- Already validated.
+
+		// Ensure media within size bounds.
+		if image.Size > maxszInt64 {
+			text := fmt.Sprintf("emoji exceeds configured max size: %s", maxsz)
+			return nil, gtserror.NewErrorBadRequest(errors.New(text), text)
 		}
 
-		// If necessary, include
-		// update to categoryID too.
-		var ai *media.AdditionalEmojiInfo
-		if updateCategoryID {
-			ai = &media.AdditionalEmojiInfo{
-				CategoryID: &newCategoryID,
-			}
-		}
-
-		// Begin media processing.
-		processingEmoji, err := p.mediaManager.PreProcessEmoji(ctx,
-			data, emoji.Shortcode, emoji.ID, emoji.URI, ai, false,
-		)
+		// Open multipart file reader.
+		mpfile, err := image.Open()
 		if err != nil {
-			err := gtserror.Newf("error processing emoji: %w", err)
+			err := gtserror.Newf("error opening multipart file: %w", err)
 			return nil, gtserror.NewErrorInternalError(err)
 		}
 
-		// Replace emoji ptr with newly-processed version.
-		emoji, err = processingEmoji.LoadEmoji(ctx)
+		// Wrap the multipart file reader to ensure is limited to max.
+		rc, _, _ := iotools.UpdateReadCloserLimit(mpfile, int64(maxsz)) // #nosec G115 -- Already validated.
+		data := func(context.Context) (io.ReadCloser, error) {
+			return rc, nil
+		}
+
+		// Include category ID
+		// update if necessary.
+		ai := media.AdditionalEmojiInfo{}
+		ai.CategoryID = newCategoryID
+
+		// Prepare emoji model for update+recache from new data.
+		processing, err := p.media.UpdateEmoji(ctx, emoji, data, ai)
 		if err != nil {
-			err := gtserror.Newf("error loading emoji: %w", err)
+			err := gtserror.Newf("error preparing recache: %w", err)
+			return nil, gtserror.NewErrorInternalError(err)
+		}
+
+		// Load to trigger update + write.
+		emoji, err = processing.Load(ctx)
+		if err != nil {
+			err := gtserror.Newf("error processing emoji %s: %w", emoji.Shortcode, err)
 			return nil, gtserror.NewErrorInternalError(err)
 		}
 	}
 
 	adminEmoji, err := p.converter.EmojiToAdminAPIEmoji(ctx, emoji)
 	if err != nil {
-		err := gtserror.Newf("error converting emoji %s to admin emoji: %w", emoji.ID, err)
+		err := gtserror.Newf("error converting emoji: %w", err)
 		return nil, gtserror.NewErrorInternalError(err)
 	}
 
 	return adminEmoji, nil
+}
+
+// createEmoji will create a new local emoji
+// with the given shortcode, attached category
+// name (if any) and data source function.
+func (p *Processor) createEmoji(
+	ctx context.Context,
+	shortcode string,
+	categoryName string,
+	data media.DataFunc,
+) (
+	*gtsmodel.Emoji,
+	gtserror.WithCode,
+) {
+	// Validate shortcode.
+	if shortcode == "" {
+		const text = "empty shortcode name"
+		return nil, gtserror.NewErrorBadRequest(errors.New(text), text)
+	}
+
+	// Look for an existing local emoji with shortcode to ensure this is new.
+	existing, err := p.state.DB.GetEmojiByShortcodeDomain(ctx, shortcode, "")
+	if err != nil && !errors.Is(err, db.ErrNoEntries) {
+		err := gtserror.Newf("error fetching emoji from db: %w", err)
+		return nil, gtserror.NewErrorInternalError(err)
+	} else if existing != nil {
+		const text = "emoji with shortcode already exists"
+		return nil, gtserror.NewErrorConflict(errors.New(text), text)
+	}
+
+	var categoryID *string
+
+	if categoryName != "" {
+		// A category was provided, get / create relevant emoji category.
+		category, errWithCode := p.mustGetEmojiCategory(ctx, categoryName)
+		if errWithCode != nil {
+			return nil, errWithCode
+		}
+
+		// Set category ID for emoji.
+		categoryID = &category.ID
+	}
+
+	// Store to instance storage.
+	return p.c.StoreLocalEmoji(
+		ctx,
+		shortcode,
+		data,
+		media.AdditionalEmojiInfo{
+			CategoryID: categoryID,
+		},
+	)
+}
+
+// mustGetEmojiCategory either gets an existing
+// category with the given name from the database,
+// or, if the category doesn't yet exist, it creates
+// the category and then returns it.
+func (p *Processor) mustGetEmojiCategory(
+	ctx context.Context,
+	name string,
+) (
+	*gtsmodel.EmojiCategory,
+	gtserror.WithCode,
+) {
+	// Look for an existing emoji category with name.
+	category, err := p.state.DB.GetEmojiCategoryByName(ctx, name)
+	if err != nil && !errors.Is(err, db.ErrNoEntries) {
+		err := gtserror.Newf("error fetching emoji category from db: %w", err)
+		return nil, gtserror.NewErrorInternalError(err)
+	}
+
+	if category != nil {
+		// We had it already.
+		return category, nil
+	}
+
+	// Create new ID.
+	id := id.NewULID()
+
+	// Prepare new category for insertion.
+	category = &gtsmodel.EmojiCategory{
+		ID:   id,
+		Name: name,
+	}
+
+	// Insert new category into the database.
+	err = p.state.DB.PutEmojiCategory(ctx, category)
+	if err != nil {
+		err := gtserror.Newf("error inserting emoji category into db: %w", err)
+		return nil, gtserror.NewErrorInternalError(err)
+	}
+
+	return category, nil
+}
+
+// emojisGetFilterParams builds extra
+// query parameters to return as part
+// of an Emojis pageable response.
+//
+// The returned string will look like:
+//
+// "filter=domain:all,enabled,shortcode:example"
+func emojisGetFilterParams(
+	shortcode string,
+	domain string,
+	includeDisabled bool,
+	includeEnabled bool,
+) string {
+	var filterBuilder strings.Builder
+	filterBuilder.WriteString("filter=")
+
+	switch domain {
+	case "", "local":
+		// Local emojis only.
+		filterBuilder.WriteString("domain:local")
+
+	case db.EmojiAllDomains:
+		// Local or remote.
+		filterBuilder.WriteString("domain:all")
+
+	default:
+		// Specific domain only.
+		filterBuilder.WriteString("domain:" + domain)
+	}
+
+	if includeDisabled != includeEnabled {
+		if includeDisabled {
+			filterBuilder.WriteString(",disabled")
+		}
+		if includeEnabled {
+			filterBuilder.WriteString(",enabled")
+		}
+	}
+
+	if shortcode != "" {
+		// Specific shortcode only.
+		filterBuilder.WriteString(",shortcode:" + shortcode)
+	}
+
+	return filterBuilder.String()
 }

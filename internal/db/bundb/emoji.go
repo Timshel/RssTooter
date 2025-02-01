@@ -20,7 +20,6 @@ package bundb
 import (
 	"context"
 	"database/sql"
-	"errors"
 	"slices"
 	"strings"
 	"time"
@@ -43,7 +42,7 @@ type emojiDB struct {
 }
 
 func (e *emojiDB) PutEmoji(ctx context.Context, emoji *gtsmodel.Emoji) error {
-	return e.state.Caches.GTS.Emoji.Store(emoji, func() error {
+	return e.state.Caches.DB.Emoji.Store(emoji, func() error {
 		_, err := e.db.NewInsert().Model(emoji).Exec(ctx)
 		return err
 	})
@@ -57,7 +56,7 @@ func (e *emojiDB) UpdateEmoji(ctx context.Context, emoji *gtsmodel.Emoji, column
 	}
 
 	// Update the emoji model in the database.
-	return e.state.Caches.GTS.Emoji.Store(emoji, func() error {
+	return e.state.Caches.DB.Emoji.Store(emoji, func() error {
 		_, err := e.db.
 			NewUpdate().
 			Model(emoji).
@@ -70,34 +69,15 @@ func (e *emojiDB) UpdateEmoji(ctx context.Context, emoji *gtsmodel.Emoji, column
 
 func (e *emojiDB) DeleteEmojiByID(ctx context.Context, id string) error {
 	var (
+		// Gather necessary fields from
+		// deleted for cache invaliation.
 		accountIDs []string
 		statusIDs  []string
 	)
 
-	defer func() {
-		// Invalidate cached emoji.
-		e.state.Caches.GTS.Emoji.Invalidate("ID", id)
+	// Delete the emoji and all related links to it in a singular transaction.
+	if err := e.db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
 
-		// Invalidate cached account and status IDs.
-		e.state.Caches.GTS.Account.InvalidateIDs("ID", accountIDs)
-		e.state.Caches.GTS.Status.InvalidateIDs("ID", statusIDs)
-	}()
-
-	// Load emoji into cache before attempting a delete,
-	// as we need it cached in order to trigger the invalidate
-	// callback. This in turn invalidates others.
-	_, err := e.GetEmojiByID(
-		gtscontext.SetBarebones(ctx),
-		id,
-	)
-	if err != nil && !errors.Is(err, db.ErrNoEntries) {
-		// NOTE: even if db.ErrNoEntries is returned, we
-		// still run the below transaction to ensure related
-		// objects are appropriately deleted.
-		return err
-	}
-
-	return e.db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
 		// Delete relational links between this emoji
 		// and any statuses using it, returning the
 		// status IDs so we can later update them.
@@ -195,7 +175,16 @@ func (e *emojiDB) DeleteEmojiByID(ctx context.Context, id string) error {
 		}
 
 		return nil
-	})
+	}); err != nil {
+		return err
+	}
+
+	// Invalidate emoji, and any effected statuses / accounts.
+	e.state.Caches.DB.Emoji.Invalidate("ID", id)
+	e.state.Caches.DB.Account.InvalidateIDs("ID", accountIDs)
+	e.state.Caches.DB.Status.InvalidateIDs("ID", statusIDs)
+
+	return nil
 }
 
 func (e *emojiDB) GetEmojisBy(ctx context.Context, domain string, includeDisabled bool, includeEnabled bool, shortcode string, maxShortcodeDomain string, minShortcodeDomain string, limit int) ([]*gtsmodel.Emoji, error) {
@@ -477,7 +466,7 @@ func (e *emojiDB) GetEmojiByStaticURL(ctx context.Context, imageStaticURL string
 }
 
 func (e *emojiDB) PutEmojiCategory(ctx context.Context, emojiCategory *gtsmodel.EmojiCategory) error {
-	return e.state.Caches.GTS.EmojiCategory.Store(emojiCategory, func() error {
+	return e.state.Caches.DB.EmojiCategory.Store(emojiCategory, func() error {
 		_, err := e.db.NewInsert().Model(emojiCategory).Exec(ctx)
 		return err
 	})
@@ -529,7 +518,7 @@ func (e *emojiDB) GetEmojiCategoryByName(ctx context.Context, name string) (*gts
 
 func (e *emojiDB) getEmoji(ctx context.Context, lookup string, dbQuery func(*gtsmodel.Emoji) error, keyParts ...any) (*gtsmodel.Emoji, error) {
 	// Fetch emoji from database cache with loader callback
-	emoji, err := e.state.Caches.GTS.Emoji.LoadOne(lookup, func() (*gtsmodel.Emoji, error) {
+	emoji, err := e.state.Caches.DB.Emoji.LoadOne(lookup, func() (*gtsmodel.Emoji, error) {
 		var emoji gtsmodel.Emoji
 
 		// Not cached! Perform database query
@@ -583,7 +572,7 @@ func (e *emojiDB) GetEmojisByIDs(ctx context.Context, ids []string) ([]*gtsmodel
 	}
 
 	// Load all emoji IDs via cache loader callbacks.
-	emojis, err := e.state.Caches.GTS.Emoji.LoadIDs("ID",
+	emojis, err := e.state.Caches.DB.Emoji.LoadIDs("ID",
 		ids,
 		func(uncached []string) ([]*gtsmodel.Emoji, error) {
 			// Preallocate expected length of uncached emojis.
@@ -629,7 +618,7 @@ func (e *emojiDB) GetEmojisByIDs(ctx context.Context, ids []string) ([]*gtsmodel
 }
 
 func (e *emojiDB) getEmojiCategory(ctx context.Context, lookup string, dbQuery func(*gtsmodel.EmojiCategory) error, keyParts ...any) (*gtsmodel.EmojiCategory, error) {
-	return e.state.Caches.GTS.EmojiCategory.LoadOne(lookup, func() (*gtsmodel.EmojiCategory, error) {
+	return e.state.Caches.DB.EmojiCategory.LoadOne(lookup, func() (*gtsmodel.EmojiCategory, error) {
 		var category gtsmodel.EmojiCategory
 
 		// Not cached! Perform database query
@@ -647,7 +636,7 @@ func (e *emojiDB) GetEmojiCategoriesByIDs(ctx context.Context, ids []string) ([]
 	}
 
 	// Load all category IDs via cache loader callbacks.
-	categories, err := e.state.Caches.GTS.EmojiCategory.LoadIDs("ID",
+	categories, err := e.state.Caches.DB.EmojiCategory.LoadIDs("ID",
 		ids,
 		func(uncached []string) ([]*gtsmodel.EmojiCategory, error) {
 			// Preallocate expected length of uncached categories.

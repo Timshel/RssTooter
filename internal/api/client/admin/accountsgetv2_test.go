@@ -70,7 +70,11 @@ func (suite *AccountsGetTestSuite) TestAccountsGetFromTop() {
     "locale": "en",
     "invite_request": null,
     "role": {
-      "name": "user"
+      "id": "user",
+      "name": "user",
+      "color": "",
+      "permissions": "0",
+      "highlighted": false
     },
     "confirmed": true,
     "approved": true,
@@ -90,12 +94,13 @@ func (suite *AccountsGetTestSuite) TestAccountsGetFromTop() {
       "url": "http://localhost:8080/@1happyturtle",
       "avatar": "",
       "avatar_static": "",
-      "header": "http://localhost:8080/assets/default_header.png",
-      "header_static": "http://localhost:8080/assets/default_header.png",
+      "header": "http://localhost:8080/assets/default_header.webp",
+      "header_static": "http://localhost:8080/assets/default_header.webp",
+      "header_description": "Flat gray background (default header).",
       "followers_count": 1,
       "following_count": 1,
       "statuses_count": 8,
-      "last_status_at": "2021-07-28T08:40:37.000Z",
+      "last_status_at": "2021-07-28",
       "emojis": [],
       "fields": [
         {
@@ -109,10 +114,7 @@ func (suite *AccountsGetTestSuite) TestAccountsGetFromTop() {
           "verified_at": null
         }
       ],
-      "hide_collections": true,
-      "role": {
-        "name": "user"
-      }
+      "hide_collections": true
     },
     "created_by_application_id": "01F8MGY43H3N2C8EWPR2FPYEXG"
   },
@@ -127,7 +129,11 @@ func (suite *AccountsGetTestSuite) TestAccountsGetFromTop() {
     "locale": "en",
     "invite_request": null,
     "role": {
-      "name": "admin"
+      "id": "admin",
+      "name": "admin",
+      "color": "",
+      "permissions": "546033",
+      "highlighted": true
     },
     "confirmed": true,
     "approved": true,
@@ -147,18 +153,23 @@ func (suite *AccountsGetTestSuite) TestAccountsGetFromTop() {
       "url": "http://localhost:8080/@admin",
       "avatar": "",
       "avatar_static": "",
-      "header": "http://localhost:8080/assets/default_header.png",
-      "header_static": "http://localhost:8080/assets/default_header.png",
+      "header": "http://localhost:8080/assets/default_header.webp",
+      "header_static": "http://localhost:8080/assets/default_header.webp",
+      "header_description": "Flat gray background (default header).",
       "followers_count": 1,
       "following_count": 1,
       "statuses_count": 4,
-      "last_status_at": "2021-10-20T10:41:37.000Z",
+      "last_status_at": "2021-10-20",
       "emojis": [],
       "fields": [],
       "enable_rss": true,
-      "role": {
-        "name": "admin"
-      }
+      "roles": [
+        {
+          "id": "admin",
+          "name": "admin",
+          "color": ""
+        }
+      ]
     },
     "created_by_application_id": "01F8MGXQRHYF5QPMTMXP78QC2F"
   },
@@ -173,7 +184,11 @@ func (suite *AccountsGetTestSuite) TestAccountsGetFromTop() {
     "locale": "",
     "invite_request": null,
     "role": {
-      "name": "user"
+      "id": "user",
+      "name": "user",
+      "color": "",
+      "permissions": "0",
+      "highlighted": false
     },
     "confirmed": false,
     "approved": false,
@@ -193,8 +208,9 @@ func (suite *AccountsGetTestSuite) TestAccountsGetFromTop() {
       "url": "http://localhost:8080/@localhost:8080",
       "avatar": "",
       "avatar_static": "",
-      "header": "http://localhost:8080/assets/default_header.png",
-      "header_static": "http://localhost:8080/assets/default_header.png",
+      "header": "http://localhost:8080/assets/default_header.webp",
+      "header_static": "http://localhost:8080/assets/default_header.webp",
+      "header_description": "Flat gray background (default header).",
       "followers_count": 0,
       "following_count": 0,
       "statuses_count": 0,
@@ -214,7 +230,11 @@ func (suite *AccountsGetTestSuite) TestAccountsGetFromTop() {
     "locale": "en",
     "invite_request": "I wanna be on this damned webbed site so bad! Please! Wow",
     "role": {
-      "name": "user"
+      "id": "user",
+      "name": "user",
+      "color": "",
+      "permissions": "0",
+      "highlighted": false
     },
     "confirmed": true,
     "approved": true,
@@ -233,19 +253,20 @@ func (suite *AccountsGetTestSuite) TestAccountsGetFromTop() {
       "note": "<p>hey yo this is my profile!</p>",
       "url": "http://localhost:8080/@the_mighty_zork",
       "avatar": "http://localhost:8080/fileserver/01F8MH1H7YV1Z7D2C8K2730QBF/avatar/original/01F8MH58A357CV5K7R7TJMSH6S.jpg",
-      "avatar_static": "http://localhost:8080/fileserver/01F8MH1H7YV1Z7D2C8K2730QBF/avatar/small/01F8MH58A357CV5K7R7TJMSH6S.jpg",
+      "avatar_static": "http://localhost:8080/fileserver/01F8MH1H7YV1Z7D2C8K2730QBF/avatar/small/01F8MH58A357CV5K7R7TJMSH6S.webp",
+      "avatar_description": "a green goblin looking nasty",
+      "avatar_media_id": "01F8MH58A357CV5K7R7TJMSH6S",
       "header": "http://localhost:8080/fileserver/01F8MH1H7YV1Z7D2C8K2730QBF/header/original/01PFPMWK2FF0D9WMHEJHR07C3Q.jpg",
-      "header_static": "http://localhost:8080/fileserver/01F8MH1H7YV1Z7D2C8K2730QBF/header/small/01PFPMWK2FF0D9WMHEJHR07C3Q.jpg",
+      "header_static": "http://localhost:8080/fileserver/01F8MH1H7YV1Z7D2C8K2730QBF/header/small/01PFPMWK2FF0D9WMHEJHR07C3Q.webp",
+      "header_description": "A very old-school screenshot of the original team fortress mod for quake",
+      "header_media_id": "01PFPMWK2FF0D9WMHEJHR07C3Q",
       "followers_count": 2,
       "following_count": 2,
-      "statuses_count": 7,
-      "last_status_at": "2023-12-10T09:24:00.000Z",
+      "statuses_count": 8,
+      "last_status_at": "2024-01-10",
       "emojis": [],
       "fields": [],
-      "enable_rss": true,
-      "role": {
-        "name": "user"
-      }
+      "enable_rss": true
     },
     "created_by_application_id": "01F8MGY43H3N2C8EWPR2FPYEXG"
   },
@@ -260,7 +281,11 @@ func (suite *AccountsGetTestSuite) TestAccountsGetFromTop() {
     "locale": "en",
     "invite_request": "hi, please let me in! I'm looking for somewhere neato bombeato to hang out.",
     "role": {
-      "name": "user"
+      "id": "user",
+      "name": "user",
+      "color": "",
+      "permissions": "0",
+      "highlighted": false
     },
     "confirmed": false,
     "approved": false,
@@ -280,17 +305,15 @@ func (suite *AccountsGetTestSuite) TestAccountsGetFromTop() {
       "url": "http://localhost:8080/@weed_lord420",
       "avatar": "",
       "avatar_static": "",
-      "header": "http://localhost:8080/assets/default_header.png",
-      "header_static": "http://localhost:8080/assets/default_header.png",
+      "header": "http://localhost:8080/assets/default_header.webp",
+      "header_static": "http://localhost:8080/assets/default_header.webp",
+      "header_description": "Flat gray background (default header).",
       "followers_count": 0,
       "following_count": 0,
       "statuses_count": 0,
       "last_status_at": null,
       "emojis": [],
-      "fields": [],
-      "role": {
-        "name": "user"
-      }
+      "fields": []
     },
     "created_by_application_id": "01F8MGY43H3N2C8EWPR2FPYEXG"
   },
@@ -305,7 +328,11 @@ func (suite *AccountsGetTestSuite) TestAccountsGetFromTop() {
     "locale": "",
     "invite_request": null,
     "role": {
-      "name": "user"
+      "id": "user",
+      "name": "user",
+      "color": "",
+      "permissions": "0",
+      "highlighted": false
     },
     "confirmed": false,
     "approved": false,
@@ -325,12 +352,13 @@ func (suite *AccountsGetTestSuite) TestAccountsGetFromTop() {
       "url": "http://example.org/@Some_User",
       "avatar": "",
       "avatar_static": "",
-      "header": "http://localhost:8080/assets/default_header.png",
-      "header_static": "http://localhost:8080/assets/default_header.png",
+      "header": "http://localhost:8080/assets/default_header.webp",
+      "header_static": "http://localhost:8080/assets/default_header.webp",
+      "header_description": "Flat gray background (default header).",
       "followers_count": 0,
       "following_count": 0,
       "statuses_count": 1,
-      "last_status_at": "2023-11-02T10:44:25.000Z",
+      "last_status_at": "2023-11-02",
       "emojis": [],
       "fields": []
     }
@@ -346,7 +374,11 @@ func (suite *AccountsGetTestSuite) TestAccountsGetFromTop() {
     "locale": "",
     "invite_request": null,
     "role": {
-      "name": "user"
+      "id": "user",
+      "name": "user",
+      "color": "",
+      "permissions": "0",
+      "highlighted": false
     },
     "confirmed": false,
     "approved": false,
@@ -366,12 +398,13 @@ func (suite *AccountsGetTestSuite) TestAccountsGetFromTop() {
       "url": "http://fossbros-anonymous.io/@foss_satan",
       "avatar": "",
       "avatar_static": "",
-      "header": "http://localhost:8080/assets/default_header.png",
-      "header_static": "http://localhost:8080/assets/default_header.png",
+      "header": "http://localhost:8080/assets/default_header.webp",
+      "header_static": "http://localhost:8080/assets/default_header.webp",
+      "header_description": "Flat gray background (default header).",
       "followers_count": 0,
       "following_count": 0,
       "statuses_count": 3,
-      "last_status_at": "2021-09-11T09:40:37.000Z",
+      "last_status_at": "2021-09-11",
       "emojis": [],
       "fields": []
     }
@@ -387,7 +420,11 @@ func (suite *AccountsGetTestSuite) TestAccountsGetFromTop() {
     "locale": "",
     "invite_request": null,
     "role": {
-      "name": "user"
+      "id": "user",
+      "name": "user",
+      "color": "",
+      "permissions": "0",
+      "highlighted": false
     },
     "confirmed": false,
     "approved": false,
@@ -408,7 +445,9 @@ func (suite *AccountsGetTestSuite) TestAccountsGetFromTop() {
       "avatar": "",
       "avatar_static": "",
       "header": "http://localhost:8080/fileserver/062G5WYKY35KKD12EMSM3F8PJ8/header/original/01PFPMWK2FF0D9WMHEJHR07C3R.jpg",
-      "header_static": "http://localhost:8080/fileserver/062G5WYKY35KKD12EMSM3F8PJ8/header/small/01PFPMWK2FF0D9WMHEJHR07C3R.jpg",
+      "header_static": "http://localhost:8080/fileserver/062G5WYKY35KKD12EMSM3F8PJ8/header/small/01PFPMWK2FF0D9WMHEJHR07C3R.webp",
+      "header_description": "tweet from thoughts of dog: i drank. all the water. in my bowl. earlier. but just now. i returned. to the same bowl. and it was. full again.. the bowl. is haunted",
+      "header_media_id": "01PFPMWK2FF0D9WMHEJHR07C3R",
       "followers_count": 0,
       "following_count": 0,
       "statuses_count": 0,
@@ -428,7 +467,11 @@ func (suite *AccountsGetTestSuite) TestAccountsGetFromTop() {
     "locale": "",
     "invite_request": null,
     "role": {
-      "name": "user"
+      "id": "user",
+      "name": "user",
+      "color": "",
+      "permissions": "0",
+      "highlighted": false
     },
     "confirmed": false,
     "approved": false,
@@ -448,8 +491,9 @@ func (suite *AccountsGetTestSuite) TestAccountsGetFromTop() {
       "url": "https://xn--xample-ova.org/users/@%C3%BCser",
       "avatar": "",
       "avatar_static": "",
-      "header": "http://localhost:8080/assets/default_header.png",
-      "header_static": "http://localhost:8080/assets/default_header.png",
+      "header": "http://localhost:8080/assets/default_header.webp",
+      "header_static": "http://localhost:8080/assets/default_header.webp",
+      "header_description": "Flat gray background (default header).",
       "followers_count": 0,
       "following_count": 0,
       "statuses_count": 0,
@@ -508,7 +552,11 @@ func (suite *AccountsGetTestSuite) TestAccountsMinID() {
     "locale": "",
     "invite_request": null,
     "role": {
-      "name": "user"
+      "id": "user",
+      "name": "user",
+      "color": "",
+      "permissions": "0",
+      "highlighted": false
     },
     "confirmed": false,
     "approved": false,
@@ -528,8 +576,9 @@ func (suite *AccountsGetTestSuite) TestAccountsMinID() {
       "url": "http://localhost:8080/@localhost:8080",
       "avatar": "",
       "avatar_static": "",
-      "header": "http://localhost:8080/assets/default_header.png",
-      "header_static": "http://localhost:8080/assets/default_header.png",
+      "header": "http://localhost:8080/assets/default_header.webp",
+      "header_static": "http://localhost:8080/assets/default_header.webp",
+      "header_description": "Flat gray background (default header).",
       "followers_count": 0,
       "following_count": 0,
       "statuses_count": 0,

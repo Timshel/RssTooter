@@ -21,11 +21,13 @@ import (
 	"github.com/stretchr/testify/suite"
 	"github.com/superseriousbusiness/gotosocial/internal/db"
 	"github.com/superseriousbusiness/gotosocial/internal/federation"
+	"github.com/superseriousbusiness/gotosocial/internal/filter/interaction"
 	"github.com/superseriousbusiness/gotosocial/internal/filter/visibility"
 	"github.com/superseriousbusiness/gotosocial/internal/gtsmodel"
 	"github.com/superseriousbusiness/gotosocial/internal/media"
 	"github.com/superseriousbusiness/gotosocial/internal/processing"
 	"github.com/superseriousbusiness/gotosocial/internal/processing/common"
+	"github.com/superseriousbusiness/gotosocial/internal/processing/interactionrequests"
 	"github.com/superseriousbusiness/gotosocial/internal/processing/polls"
 	"github.com/superseriousbusiness/gotosocial/internal/processing/status"
 	"github.com/superseriousbusiness/gotosocial/internal/state"
@@ -89,16 +91,32 @@ func (suite *StatusStandardTestSuite) SetupTest() {
 	suite.mediaManager = testrig.NewTestMediaManager(&suite.state)
 	suite.federator = testrig.NewTestFederator(&suite.state, suite.tc, suite.mediaManager)
 
-	filter := visibility.NewFilter(&suite.state)
+	visFilter := visibility.NewFilter(&suite.state)
+	intFilter := interaction.NewFilter(&suite.state)
 	testrig.StartTimelines(
 		&suite.state,
-		filter,
+		visFilter,
 		suite.typeConverter,
 	)
 
-	common := common.New(&suite.state, suite.typeConverter, suite.federator, filter)
+	common := common.New(&suite.state, suite.mediaManager, suite.typeConverter, suite.federator, visFilter)
 	polls := polls.New(&common, &suite.state, suite.typeConverter)
-	suite.status = status.New(&suite.state, &common, &polls, suite.federator, suite.typeConverter, filter, processing.GetParseMentionFunc(&suite.state, suite.federator))
+	intReqs := interactionrequests.New(&common, &suite.state, suite.typeConverter)
+
+	suite.status = status.New(
+		&suite.state,
+		&common,
+		&polls,
+		&intReqs,
+		suite.federator,
+		suite.typeConverter,
+		visFilter,
+		intFilter,
+		processing.GetParseMentionFunc(
+			&suite.state,
+			suite.federator,
+		),
+	)
 
 	testrig.StandardDBSetup(suite.db, suite.testAccounts)
 	testrig.StandardStorageSetup(suite.storage, "../../../testrig/media")

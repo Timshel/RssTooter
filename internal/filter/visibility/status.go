@@ -25,6 +25,7 @@ import (
 	"github.com/superseriousbusiness/gotosocial/internal/gtserror"
 	"github.com/superseriousbusiness/gotosocial/internal/gtsmodel"
 	"github.com/superseriousbusiness/gotosocial/internal/log"
+	"github.com/superseriousbusiness/gotosocial/internal/util"
 )
 
 // StatusesVisible calls StatusVisible for each status in the statuses slice, and returns a slice of only statuses which are visible to the requester.
@@ -41,12 +42,19 @@ func (f *Filter) StatusesVisible(ctx context.Context, requester *gtsmodel.Accoun
 	return filtered, errs.Combine()
 }
 
-// StatusVisible will check if given status is visible to requester, accounting for requester with no auth (i.e is nil), suspensions, disabled local users, account blocks and status privacy.
-func (f *Filter) StatusVisible(ctx context.Context, requester *gtsmodel.Account, status *gtsmodel.Status) (bool, error) {
+// StatusVisible will check if status is visible to requester,
+// accounting for requester with no auth (i.e is nil), suspensions,
+// disabled local users, pending approvals, account blocks,
+// and status visibility settings.
+func (f *Filter) StatusVisible(
+	ctx context.Context,
+	requester *gtsmodel.Account,
+	status *gtsmodel.Status,
+) (bool, error) {
 	const vtype = cache.VisibilityTypeStatus
 
 	// By default we assume no auth.
-	requesterID := noauth
+	requesterID := NoAuth
 
 	if requester != nil {
 		// Use provided account ID.
@@ -75,36 +83,64 @@ func (f *Filter) StatusVisible(ctx context.Context, requester *gtsmodel.Account,
 	return visibility.Value, nil
 }
 
-// isStatusVisible will check if status is visible to requester. It is the "meat" of the logic to Filter{}.StatusVisible() which is called within cache loader callback.
-func (f *Filter) isStatusVisible(ctx context.Context, requester *gtsmodel.Account, status *gtsmodel.Status) (bool, error) {
+// isStatusVisible will check if status is visible to requester.
+// It is the "meat" of the logic to Filter{}.StatusVisible()
+// which is called within cache loader callback.
+func (f *Filter) isStatusVisible(
+	ctx context.Context,
+	requester *gtsmodel.Account,
+	status *gtsmodel.Status,
+) (bool, error) {
 	// Ensure that status is fully populated for further processing.
 	if err := f.state.DB.PopulateStatus(ctx, status); err != nil {
 		return false, gtserror.Newf("error populating status %s: %w", status.ID, err)
 	}
 
 	// Check whether status accounts are visible to the requester.
-	visible, err := f.areStatusAccountsVisible(ctx, requester, status)
+	acctsVisible, err := f.areStatusAccountsVisible(ctx, requester, status)
 	if err != nil {
 		return false, gtserror.Newf("error checking status %s account visibility: %w", status.ID, err)
-	} else if !visible {
+	} else if !acctsVisible {
 		return false, nil
 	}
 
-	if status.Visibility == gtsmodel.VisibilityPublic {
-		// This status will be visible to all.
-		return true, nil
+	if util.PtrOrZero(status.PendingApproval) {
+		// Use a different visibility heuristic
+		// for pending approval statuses.
+		return isPendingStatusVisible(
+			requester, status,
+		), nil
 	}
 
 	if requester == nil {
-		// This request is WITHOUT auth, and status is NOT public.
-		log.Trace(ctx, "unauthorized request to non-public status")
+		// Use a different visibility
+		// heuristic for unauthed requests.
+		return f.isStatusVisibleUnauthed(
+			ctx, status,
+		)
+	}
+
+	/*
+		From this point down we know the request is authed.
+	*/
+
+	if requester.IsRemote() && status.IsLocalOnly() {
+		// Remote accounts can't see local-only
+		// posts regardless of their visibility.
 		return false, nil
 	}
 
-	if status.Visibility == gtsmodel.VisibilityUnlocked {
-		// This status is visible to all auth'd accounts.
+	if status.Visibility == gtsmodel.VisibilityPublic ||
+		status.Visibility == gtsmodel.VisibilityUnlocked {
+		// This status is visible to all auth'd accounts
+		// (pending blocks, which we already checked above).
 		return true, nil
 	}
+
+	/*
+		From this point down we know the request
+		is of visibility followers-only or below.
+	*/
 
 	if requester.ID == status.AccountID {
 		// Author can always see their own status.
@@ -173,6 +209,93 @@ func (f *Filter) isStatusVisible(ctx context.Context, requester *gtsmodel.Accoun
 	default:
 		log.Warnf(ctx, "unexpected status visibility %s for %s", status.Visibility, status.URI)
 		return false, nil
+	}
+}
+
+// isPendingStatusVisible returns whether a status pending approval is visible to requester.
+func isPendingStatusVisible(requester *gtsmodel.Account, status *gtsmodel.Status) bool {
+	if requester == nil {
+		// Any old tom, dick, and harry can't
+		// see pending-approval statuses,
+		// no matter what their visibility.
+		return false
+	}
+
+	if status.AccountID == requester.ID {
+		// This is requester's status,
+		// so they can always see it.
+		return true
+	}
+
+	if status.InReplyToAccountID == requester.ID {
+		// This status replies to requester,
+		// so they can always see it (else
+		// they can't approve it).
+		return true
+	}
+
+	if status.BoostOfAccountID == requester.ID {
+		// This status boosts requester,
+		// so they can always see it.
+		return true
+	}
+
+	// Nobody else
+	// can see this.
+	return false
+}
+
+// isStatusVisibleUnauthed returns whether status is visible without any unauthenticated account.
+func (f *Filter) isStatusVisibleUnauthed(ctx context.Context, status *gtsmodel.Status) (bool, error) {
+
+	// For remote accounts, only show
+	// Public statuses via the web.
+	if status.Account.IsRemote() {
+		return status.Visibility == gtsmodel.VisibilityPublic, nil
+	}
+
+	// If status is local only,
+	// never show via the web.
+	if status.IsLocalOnly() {
+		return false, nil
+	}
+
+	// Check account's settings to see
+	// what they expose. Populate these
+	// from the DB if necessary.
+	if status.Account.Settings == nil {
+		var err error
+		status.Account.Settings, err = f.state.DB.GetAccountSettings(ctx, status.Account.ID)
+		if err != nil {
+			return false, gtserror.Newf(
+				"error getting settings for account %s: %w",
+				status.Account.ID, err,
+			)
+		}
+	}
+
+	switch webvis := status.Account.Settings.WebVisibility; webvis {
+
+	// public_only: status must be Public.
+	case gtsmodel.VisibilityPublic:
+		return status.Visibility == gtsmodel.VisibilityPublic, nil
+
+	// unlisted: status must be Public or Unlocked.
+	case gtsmodel.VisibilityUnlocked:
+		visible := status.Visibility == gtsmodel.VisibilityPublic ||
+			status.Visibility == gtsmodel.VisibilityUnlocked
+		return visible, nil
+
+	// none: never show via the web.
+	case gtsmodel.VisibilityNone:
+		return false, nil
+
+	// Huh?
+	default:
+		return false, gtserror.Newf(
+			"unrecognized web visibility for account %s: %s",
+			status.Account.ID, webvis,
+		)
 	}
 }
 

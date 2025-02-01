@@ -21,6 +21,7 @@ import (
 	"context"
 
 	"github.com/superseriousbusiness/gotosocial/internal/gtsmodel"
+	"github.com/superseriousbusiness/gotosocial/internal/paging"
 )
 
 // Report handles getting/creation/deletion/updating of user reports/flags.
@@ -30,7 +31,7 @@ type Report interface {
 
 	// GetReports gets limit n reports using the given parameters.
 	// Parameters that are empty / zero are ignored.
-	GetReports(ctx context.Context, resolved *bool, accountID string, targetAccountID string, maxID string, sinceID string, minID string, limit int) ([]*gtsmodel.Report, error)
+	GetReports(ctx context.Context, resolved *bool, accountID string, targetAccountID string, page *paging.Page) ([]*gtsmodel.Report, error)
 
 	// PopulateReport populates the struct pointers on the given report.
 	PopulateReport(ctx context.Context, report *gtsmodel.Report) error
@@ -43,7 +44,7 @@ type Report interface {
 	// provided, then all columns will be updated.
 	// updated_at will also be updated, no need to pass this
 	// as a specific column.
-	UpdateReport(ctx context.Context, report *gtsmodel.Report, columns ...string) (*gtsmodel.Report, error)
+	UpdateReport(ctx context.Context, report *gtsmodel.Report, columns ...string) error
 
 	// DeleteReportByID deletes report with the given id.
 	DeleteReportByID(ctx context.Context, id string) error

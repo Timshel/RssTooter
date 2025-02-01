@@ -28,6 +28,7 @@ import (
 	"github.com/stretchr/testify/suite"
 	"github.com/superseriousbusiness/gotosocial/internal/api/client/admin"
 	apimodel "github.com/superseriousbusiness/gotosocial/internal/api/model"
+	apiutil "github.com/superseriousbusiness/gotosocial/internal/api/util"
 	"github.com/superseriousbusiness/gotosocial/internal/config"
 	"github.com/superseriousbusiness/gotosocial/internal/gtserror"
 	"github.com/superseriousbusiness/gotosocial/internal/gtsmodel"
@@ -63,24 +64,24 @@ func (suite *ReportsGetTestSuite) getReports(
 	ctx.Set(oauth.SessionAuthorizedUser, user)
 
 	// create the request URI
-	requestPath := admin.ReportsPath + "?" + admin.LimitKey + "=" + strconv.Itoa(limit)
+	requestPath := admin.ReportsPath + "?" + apiutil.LimitKey + "=" + strconv.Itoa(limit)
 	if resolved != nil {
-		requestPath = requestPath + "&" + admin.ResolvedKey + "=" + strconv.FormatBool(*resolved)
+		requestPath = requestPath + "&" + apiutil.ResolvedKey + "=" + strconv.FormatBool(*resolved)
 	}
 	if accountID != "" {
-		requestPath = requestPath + "&" + admin.AccountIDKey + "=" + accountID
+		requestPath = requestPath + "&" + apiutil.AccountIDKey + "=" + accountID
 	}
 	if targetAccountID != "" {
-		requestPath = requestPath + "&" + admin.TargetAccountIDKey + "=" + targetAccountID
+		requestPath = requestPath + "&" + apiutil.TargetAccountIDKey + "=" + targetAccountID
 	}
 	if maxID != "" {
-		requestPath = requestPath + "&" + admin.MaxIDKey + "=" + maxID
+		requestPath = requestPath + "&" + apiutil.MaxIDKey + "=" + maxID
 	}
 	if sinceID != "" {
-		requestPath = requestPath + "&" + admin.SinceIDKey + "=" + sinceID
+		requestPath = requestPath + "&" + apiutil.SinceIDKey + "=" + sinceID
 	}
 	if minID != "" {
-		requestPath = requestPath + "&" + admin.MinIDKey + "=" + minID
+		requestPath = requestPath + "&" + apiutil.MinIDKey + "=" + minID
 	}
 	baseURI := config.GetProtocol() + "://" + config.GetHost()
 	requestURI := baseURI + "/api/" + requestPath
@@ -156,7 +157,11 @@ func (suite *ReportsGetTestSuite) TestReportsGetAll() {
       "locale": "",
       "invite_request": null,
       "role": {
-        "name": "user"
+        "id": "user",
+        "name": "user",
+        "color": "",
+        "permissions": "0",
+        "highlighted": false
       },
       "confirmed": false,
       "approved": false,
@@ -176,12 +181,13 @@ func (suite *ReportsGetTestSuite) TestReportsGetAll() {
         "url": "http://fossbros-anonymous.io/@foss_satan",
         "avatar": "",
         "avatar_static": "",
-        "header": "http://localhost:8080/assets/default_header.png",
-        "header_static": "http://localhost:8080/assets/default_header.png",
+        "header": "http://localhost:8080/assets/default_header.webp",
+        "header_static": "http://localhost:8080/assets/default_header.webp",
+        "header_description": "Flat gray background (default header).",
         "followers_count": 0,
         "following_count": 0,
         "statuses_count": 3,
-        "last_status_at": "2021-09-11T09:40:37.000Z",
+        "last_status_at": "2021-09-11",
         "emojis": [],
         "fields": []
       }
@@ -197,7 +203,11 @@ func (suite *ReportsGetTestSuite) TestReportsGetAll() {
       "locale": "en",
       "invite_request": null,
       "role": {
-        "name": "user"
+        "id": "user",
+        "name": "user",
+        "color": "",
+        "permissions": "0",
+        "highlighted": false
       },
       "confirmed": true,
       "approved": true,
@@ -217,12 +227,13 @@ func (suite *ReportsGetTestSuite) TestReportsGetAll() {
         "url": "http://localhost:8080/@1happyturtle",
         "avatar": "",
         "avatar_static": "",
-        "header": "http://localhost:8080/assets/default_header.png",
-        "header_static": "http://localhost:8080/assets/default_header.png",
+        "header": "http://localhost:8080/assets/default_header.webp",
+        "header_static": "http://localhost:8080/assets/default_header.webp",
+        "header_description": "Flat gray background (default header).",
         "followers_count": 1,
         "following_count": 1,
         "statuses_count": 8,
-        "last_status_at": "2021-07-28T08:40:37.000Z",
+        "last_status_at": "2021-07-28",
         "emojis": [],
         "fields": [
           {
@@ -236,10 +247,7 @@ func (suite *ReportsGetTestSuite) TestReportsGetAll() {
             "verified_at": null
           }
         ],
-        "hide_collections": true,
-        "role": {
-          "name": "user"
-        }
+        "hide_collections": true
       },
       "created_by_application_id": "01F8MGY43H3N2C8EWPR2FPYEXG"
     },
@@ -254,7 +262,11 @@ func (suite *ReportsGetTestSuite) TestReportsGetAll() {
       "locale": "en",
       "invite_request": null,
       "role": {
-        "name": "admin"
+        "id": "admin",
+        "name": "admin",
+        "color": "",
+        "permissions": "546033",
+        "highlighted": true
       },
       "confirmed": true,
       "approved": true,
@@ -274,18 +286,23 @@ func (suite *ReportsGetTestSuite) TestReportsGetAll() {
         "url": "http://localhost:8080/@admin",
         "avatar": "",
         "avatar_static": "",
-        "header": "http://localhost:8080/assets/default_header.png",
-        "header_static": "http://localhost:8080/assets/default_header.png",
+        "header": "http://localhost:8080/assets/default_header.webp",
+        "header_static": "http://localhost:8080/assets/default_header.webp",
+        "header_description": "Flat gray background (default header).",
         "followers_count": 1,
         "following_count": 1,
         "statuses_count": 4,
-        "last_status_at": "2021-10-20T10:41:37.000Z",
+        "last_status_at": "2021-10-20",
         "emojis": [],
         "fields": [],
         "enable_rss": true,
-        "role": {
-          "name": "admin"
-        }
+        "roles": [
+          {
+            "id": "admin",
+            "name": "admin",
+            "color": ""
+          }
+        ]
       },
       "created_by_application_id": "01F8MGXQRHYF5QPMTMXP78QC2F"
     },
@@ -300,7 +317,11 @@ func (suite *ReportsGetTestSuite) TestReportsGetAll() {
       "locale": "en",
       "invite_request": null,
       "role": {
-        "name": "admin"
+        "id": "admin",
+        "name": "admin",
+        "color": "",
+        "permissions": "546033",
+        "highlighted": true
       },
       "confirmed": true,
       "approved": true,
@@ -320,18 +341,23 @@ func (suite *ReportsGetTestSuite) TestReportsGetAll() {
         "url": "http://localhost:8080/@admin",
         "avatar": "",
         "avatar_static": "",
-        "header": "http://localhost:8080/assets/default_header.png",
-        "header_static": "http://localhost:8080/assets/default_header.png",
+        "header": "http://localhost:8080/assets/default_header.webp",
+        "header_static": "http://localhost:8080/assets/default_header.webp",
+        "header_description": "Flat gray background (default header).",
         "followers_count": 1,
         "following_count": 1,
         "statuses_count": 4,
-        "last_status_at": "2021-10-20T10:41:37.000Z",
+        "last_status_at": "2021-10-20",
         "emojis": [],
         "fields": [],
         "enable_rss": true,
-        "role": {
-          "name": "admin"
-        }
+        "roles": [
+          {
+            "id": "admin",
+            "name": "admin",
+            "color": ""
+          }
+        ]
       },
       "created_by_application_id": "01F8MGXQRHYF5QPMTMXP78QC2F"
     },
@@ -359,7 +385,11 @@ func (suite *ReportsGetTestSuite) TestReportsGetAll() {
       "locale": "en",
       "invite_request": null,
       "role": {
-        "name": "user"
+        "id": "user",
+        "name": "user",
+        "color": "",
+        "permissions": "0",
+        "highlighted": false
       },
       "confirmed": true,
       "approved": true,
@@ -379,12 +409,13 @@ func (suite *ReportsGetTestSuite) TestReportsGetAll() {
         "url": "http://localhost:8080/@1happyturtle",
         "avatar": "",
         "avatar_static": "",
-        "header": "http://localhost:8080/assets/default_header.png",
-        "header_static": "http://localhost:8080/assets/default_header.png",
+        "header": "http://localhost:8080/assets/default_header.webp",
+        "header_static": "http://localhost:8080/assets/default_header.webp",
+        "header_description": "Flat gray background (default header).",
         "followers_count": 1,
         "following_count": 1,
         "statuses_count": 8,
-        "last_status_at": "2021-07-28T08:40:37.000Z",
+        "last_status_at": "2021-07-28",
         "emojis": [],
         "fields": [
           {
@@ -398,10 +429,7 @@ func (suite *ReportsGetTestSuite) TestReportsGetAll() {
             "verified_at": null
           }
         ],
-        "hide_collections": true,
-        "role": {
-          "name": "user"
-        }
+        "hide_collections": true
       },
       "created_by_application_id": "01F8MGY43H3N2C8EWPR2FPYEXG"
     },
@@ -416,7 +444,11 @@ func (suite *ReportsGetTestSuite) TestReportsGetAll() {
       "locale": "",
       "invite_request": null,
       "role": {
-        "name": "user"
+        "id": "user",
+        "name": "user",
+        "color": "",
+        "permissions": "0",
+        "highlighted": false
       },
       "confirmed": false,
       "approved": false,
@@ -436,12 +468,13 @@ func (suite *ReportsGetTestSuite) TestReportsGetAll() {
         "url": "http://fossbros-anonymous.io/@foss_satan",
         "avatar": "",
         "avatar_static": "",
-        "header": "http://localhost:8080/assets/default_header.png",
-        "header_static": "http://localhost:8080/assets/default_header.png",
+        "header": "http://localhost:8080/assets/default_header.webp",
+        "header_static": "http://localhost:8080/assets/default_header.webp",
+        "header_description": "Flat gray background (default header).",
         "followers_count": 0,
         "following_count": 0,
         "statuses_count": 3,
-        "last_status_at": "2021-09-11T09:40:37.000Z",
+        "last_status_at": "2021-09-11",
         "emojis": [],
         "fields": []
       }
@@ -483,12 +516,13 @@ func (suite *ReportsGetTestSuite) TestReportsGetAll() {
           "url": "http://fossbros-anonymous.io/@foss_satan",
           "avatar": "",
           "avatar_static": "",
-          "header": "http://localhost:8080/assets/default_header.png",
-          "header_static": "http://localhost:8080/assets/default_header.png",
+          "header": "http://localhost:8080/assets/default_header.webp",
+          "header_static": "http://localhost:8080/assets/default_header.webp",
+          "header_description": "Flat gray background (default header).",
           "followers_count": 0,
           "following_count": 0,
           "statuses_count": 3,
-          "last_status_at": "2021-09-11T09:40:37.000Z",
+          "last_status_at": "2021-09-11",
           "emojis": [],
           "fields": []
         },
@@ -498,9 +532,9 @@ func (suite *ReportsGetTestSuite) TestReportsGetAll() {
             "type": "image",
             "url": "http://localhost:8080/fileserver/01F8MH5ZK5VRH73AKHQM6Y9VNX/attachment/original/01FVW7RXPQ8YJHTEXYPE7Q8ZY0.jpg",
             "text_url": "http://localhost:8080/fileserver/01F8MH5ZK5VRH73AKHQM6Y9VNX/attachment/original/01FVW7RXPQ8YJHTEXYPE7Q8ZY0.jpg",
-            "preview_url": "http://localhost:8080/fileserver/01F8MH5ZK5VRH73AKHQM6Y9VNX/attachment/small/01FVW7RXPQ8YJHTEXYPE7Q8ZY0.jpg",
+            "preview_url": "http://localhost:8080/fileserver/01F8MH5ZK5VRH73AKHQM6Y9VNX/attachment/small/01FVW7RXPQ8YJHTEXYPE7Q8ZY0.webp",
             "remote_url": "http://fossbros-anonymous.io/attachments/original/13bbc3f8-2b5e-46ea-9531-40b4974d9912.jpg",
-            "preview_remote_url": "http://fossbros-anonymous.io/attachments/small/a499f55b-2d1e-4acd-98d2-1ac2ba6d79b9.jpg",
+            "preview_remote_url": null,
             "meta": {
               "original": {
                 "width": 472,
@@ -520,14 +554,37 @@ func (suite *ReportsGetTestSuite) TestReportsGetAll() {
               }
             },
             "description": "tweet from thoughts of dog: i drank. all the water. in my bowl. earlier. but just now. i returned. to the same bowl. and it was. full again.. the bowl. is haunted",
-            "blurhash": "LARysgM_IU_3~pD%M_Rj_39FIAt6"
+            "blurhash": "L3Q9_@4n9E?axW4mD$Mx~q00Di%L"
           }
         ],
         "mentions": [],
         "tags": [],
         "emojis": [],
         "card": null,
-        "poll": null
+        "poll": null,
+        "interaction_policy": {
+          "can_favourite": {
+            "always": [
+              "public",
+              "me"
+            ],
+            "with_approval": []
+          },
+          "can_reply": {
+            "always": [
+              "public",
+              "me"
+            ],
+            "with_approval": []
+          },
+          "can_reblog": {
+            "always": [
+              "public",
+              "me"
+            ],
+            "with_approval": []
+          }
+        }
       }
     ],
     "rules": [
@@ -581,7 +638,11 @@ func (suite *ReportsGetTestSuite) TestReportsGetCreatedByAccount() {
       "locale": "en",
       "invite_request": null,
       "role": {
-        "name": "user"
+        "id": "user",
+        "name": "user",
+        "color": "",
+        "permissions": "0",
+        "highlighted": false
       },
       "confirmed": true,
       "approved": true,
@@ -601,12 +662,13 @@ func (suite *ReportsGetTestSuite) TestReportsGetCreatedByAccount() {
         "url": "http://localhost:8080/@1happyturtle",
         "avatar": "",
         "avatar_static": "",
-        "header": "http://localhost:8080/assets/default_header.png",
-        "header_static": "http://localhost:8080/assets/default_header.png",
+        "header": "http://localhost:8080/assets/default_header.webp",
+        "header_static": "http://localhost:8080/assets/default_header.webp",
+        "header_description": "Flat gray background (default header).",
         "followers_count": 1,
         "following_count": 1,
         "statuses_count": 8,
-        "last_status_at": "2021-07-28T08:40:37.000Z",
+        "last_status_at": "2021-07-28",
         "emojis": [],
         "fields": [
           {
@@ -620,10 +682,7 @@ func (suite *ReportsGetTestSuite) TestReportsGetCreatedByAccount() {
             "verified_at": null
           }
         ],
-        "hide_collections": true,
-        "role": {
-          "name": "user"
-        }
+        "hide_collections": true
       },
       "created_by_application_id": "01F8MGY43H3N2C8EWPR2FPYEXG"
     },
@@ -638,7 +697,11 @@ func (suite *ReportsGetTestSuite) TestReportsGetCreatedByAccount() {
       "locale": "",
       "invite_request": null,
       "role": {
-        "name": "user"
+        "id": "user",
+        "name": "user",
+        "color": "",
+        "permissions": "0",
+        "highlighted": false
       },
       "confirmed": false,
       "approved": false,
@@ -658,12 +721,13 @@ func (suite *ReportsGetTestSuite) TestReportsGetCreatedByAccount() {
         "url": "http://fossbros-anonymous.io/@foss_satan",
         "avatar": "",
         "avatar_static": "",
-        "header": "http://localhost:8080/assets/default_header.png",
-        "header_static": "http://localhost:8080/assets/default_header.png",
+        "header": "http://localhost:8080/assets/default_header.webp",
+        "header_static": "http://localhost:8080/assets/default_header.webp",
+        "header_description": "Flat gray background (default header).",
         "followers_count": 0,
         "following_count": 0,
         "statuses_count": 3,
-        "last_status_at": "2021-09-11T09:40:37.000Z",
+        "last_status_at": "2021-09-11",
         "emojis": [],
         "fields": []
       }
@@ -705,12 +769,13 @@ func (suite *ReportsGetTestSuite) TestReportsGetCreatedByAccount() {
           "url": "http://fossbros-anonymous.io/@foss_satan",
           "avatar": "",
           "avatar_static": "",
-          "header": "http://localhost:8080/assets/default_header.png",
-          "header_static": "http://localhost:8080/assets/default_header.png",
+          "header": "http://localhost:8080/assets/default_header.webp",
+          "header_static": "http://localhost:8080/assets/default_header.webp",
+          "header_description": "Flat gray background (default header).",
           "followers_count": 0,
           "following_count": 0,
           "statuses_count": 3,
-          "last_status_at": "2021-09-11T09:40:37.000Z",
+          "last_status_at": "2021-09-11",
           "emojis": [],
           "fields": []
         },
@@ -720,9 +785,9 @@ func (suite *ReportsGetTestSuite) TestReportsGetCreatedByAccount() {
             "type": "image",
             "url": "http://localhost:8080/fileserver/01F8MH5ZK5VRH73AKHQM6Y9VNX/attachment/original/01FVW7RXPQ8YJHTEXYPE7Q8ZY0.jpg",
             "text_url": "http://localhost:8080/fileserver/01F8MH5ZK5VRH73AKHQM6Y9VNX/attachment/original/01FVW7RXPQ8YJHTEXYPE7Q8ZY0.jpg",
-            "preview_url": "http://localhost:8080/fileserver/01F8MH5ZK5VRH73AKHQM6Y9VNX/attachment/small/01FVW7RXPQ8YJHTEXYPE7Q8ZY0.jpg",
+            "preview_url": "http://localhost:8080/fileserver/01F8MH5ZK5VRH73AKHQM6Y9VNX/attachment/small/01FVW7RXPQ8YJHTEXYPE7Q8ZY0.webp",
             "remote_url": "http://fossbros-anonymous.io/attachments/original/13bbc3f8-2b5e-46ea-9531-40b4974d9912.jpg",
-            "preview_remote_url": "http://fossbros-anonymous.io/attachments/small/a499f55b-2d1e-4acd-98d2-1ac2ba6d79b9.jpg",
+            "preview_remote_url": null,
             "meta": {
               "original": {
                 "width": 472,
@@ -742,14 +807,37 @@ func (suite *ReportsGetTestSuite) TestReportsGetCreatedByAccount() {
               }
             },
             "description": "tweet from thoughts of dog: i drank. all the water. in my bowl. earlier. but just now. i returned. to the same bowl. and it was. full again.. the bowl. is haunted",
-            "blurhash": "LARysgM_IU_3~pD%M_Rj_39FIAt6"
+            "blurhash": "L3Q9_@4n9E?axW4mD$Mx~q00Di%L"
           }
         ],
         "mentions": [],
         "tags": [],
         "emojis": [],
         "card": null,
-        "poll": null
+        "poll": null,
+        "interaction_policy": {
+          "can_favourite": {
+            "always": [
+              "public",
+              "me"
+            ],
+            "with_approval": []
+          },
+          "can_reply": {
+            "always": [
+              "public",
+              "me"
+            ],
+            "with_approval": []
+          },
+          "can_reblog": {
+            "always": [
+              "public",
+              "me"
+            ],
+            "with_approval": []
+          }
+        }
       }
     ],
     "rules": [
@@ -766,7 +854,7 @@ func (suite *ReportsGetTestSuite) TestReportsGetCreatedByAccount() {
   }
 ]`, string(b))
 
-	suite.Equal(`<http://localhost:8080/api/v1/admin/reports?limit=20&max_id=01GP3AWY4CRDVRNZKW0TEAMB5R&account_id=01F8MH5NBDF2MV7CTC4Q5128HF>; rel="next", <http://localhost:8080/api/v1/admin/reports?limit=20&min_id=01GP3AWY4CRDVRNZKW0TEAMB5R&account_id=01F8MH5NBDF2MV7CTC4Q5128HF>; rel="prev"`, link)
+	suite.Equal(`<http://localhost:8080/api/v1/admin/reports?account_id=01F8MH5NBDF2MV7CTC4Q5128HF&limit=20&max_id=01GP3AWY4CRDVRNZKW0TEAMB5R>; rel="next", <http://localhost:8080/api/v1/admin/reports?account_id=01F8MH5NBDF2MV7CTC4Q5128HF&limit=20&min_id=01GP3AWY4CRDVRNZKW0TEAMB5R>; rel="prev"`, link)
 }
 
 func (suite *ReportsGetTestSuite) TestReportsGetTargetAccount() {
@@ -803,7 +891,11 @@ func (suite *ReportsGetTestSuite) TestReportsGetTargetAccount() {
       "locale": "en",
       "invite_request": null,
       "role": {
-        "name": "user"
+        "id": "user",
+        "name": "user",
+        "color": "",
+        "permissions": "0",
+        "highlighted": false
       },
       "confirmed": true,
       "approved": true,
@@ -823,12 +915,13 @@ func (suite *ReportsGetTestSuite) TestReportsGetTargetAccount() {
         "url": "http://localhost:8080/@1happyturtle",
         "avatar": "",
         "avatar_static": "",
-        "header": "http://localhost:8080/assets/default_header.png",
-        "header_static": "http://localhost:8080/assets/default_header.png",
+        "header": "http://localhost:8080/assets/default_header.webp",
+        "header_static": "http://localhost:8080/assets/default_header.webp",
+        "header_description": "Flat gray background (default header).",
         "followers_count": 1,
         "following_count": 1,
         "statuses_count": 8,
-        "last_status_at": "2021-07-28T08:40:37.000Z",
+        "last_status_at": "2021-07-28",
         "emojis": [],
         "fields": [
           {
@@ -842,10 +935,7 @@ func (suite *ReportsGetTestSuite) TestReportsGetTargetAccount() {
             "verified_at": null
           }
         ],
-        "hide_collections": true,
-        "role": {
-          "name": "user"
-        }
+        "hide_collections": true
       },
       "created_by_application_id": "01F8MGY43H3N2C8EWPR2FPYEXG"
     },
@@ -860,7 +950,11 @@ func (suite *ReportsGetTestSuite) TestReportsGetTargetAccount() {
       "locale": "",
       "invite_request": null,
       "role": {
-        "name": "user"
+        "id": "user",
+        "name": "user",
+        "color": "",
+        "permissions": "0",
+        "highlighted": false
       },
       "confirmed": false,
       "approved": false,
@@ -880,12 +974,13 @@ func (suite *ReportsGetTestSuite) TestReportsGetTargetAccount() {
         "url": "http://fossbros-anonymous.io/@foss_satan",
         "avatar": "",
         "avatar_static": "",
-        "header": "http://localhost:8080/assets/default_header.png",
-        "header_static": "http://localhost:8080/assets/default_header.png",
+        "header": "http://localhost:8080/assets/default_header.webp",
+        "header_static": "http://localhost:8080/assets/default_header.webp",
+        "header_description": "Flat gray background (default header).",
         "followers_count": 0,
         "following_count": 0,
         "statuses_count": 3,
-        "last_status_at": "2021-09-11T09:40:37.000Z",
+        "last_status_at": "2021-09-11",
         "emojis": [],
         "fields": []
       }
@@ -927,12 +1022,13 @@ func (suite *ReportsGetTestSuite) TestReportsGetTargetAccount() {
           "url": "http://fossbros-anonymous.io/@foss_satan",
           "avatar": "",
           "avatar_static": "",
-          "header": "http://localhost:8080/assets/default_header.png",
-          "header_static": "http://localhost:8080/assets/default_header.png",
+          "header": "http://localhost:8080/assets/default_header.webp",
+          "header_static": "http://localhost:8080/assets/default_header.webp",
+          "header_description": "Flat gray background (default header).",
           "followers_count": 0,
           "following_count": 0,
           "statuses_count": 3,
-          "last_status_at": "2021-09-11T09:40:37.000Z",
+          "last_status_at": "2021-09-11",
           "emojis": [],
           "fields": []
         },
@@ -942,9 +1038,9 @@ func (suite *ReportsGetTestSuite) TestReportsGetTargetAccount() {
             "type": "image",
             "url": "http://localhost:8080/fileserver/01F8MH5ZK5VRH73AKHQM6Y9VNX/attachment/original/01FVW7RXPQ8YJHTEXYPE7Q8ZY0.jpg",
             "text_url": "http://localhost:8080/fileserver/01F8MH5ZK5VRH73AKHQM6Y9VNX/attachment/original/01FVW7RXPQ8YJHTEXYPE7Q8ZY0.jpg",
-            "preview_url": "http://localhost:8080/fileserver/01F8MH5ZK5VRH73AKHQM6Y9VNX/attachment/small/01FVW7RXPQ8YJHTEXYPE7Q8ZY0.jpg",
+            "preview_url": "http://localhost:8080/fileserver/01F8MH5ZK5VRH73AKHQM6Y9VNX/attachment/small/01FVW7RXPQ8YJHTEXYPE7Q8ZY0.webp",
             "remote_url": "http://fossbros-anonymous.io/attachments/original/13bbc3f8-2b5e-46ea-9531-40b4974d9912.jpg",
-            "preview_remote_url": "http://fossbros-anonymous.io/attachments/small/a499f55b-2d1e-4acd-98d2-1ac2ba6d79b9.jpg",
+            "preview_remote_url": null,
             "meta": {
               "original": {
                 "width": 472,
@@ -964,14 +1060,37 @@ func (suite *ReportsGetTestSuite) TestReportsGetTargetAccount() {
               }
             },
             "description": "tweet from thoughts of dog: i drank. all the water. in my bowl. earlier. but just now. i returned. to the same bowl. and it was. full again.. the bowl. is haunted",
-            "blurhash": "LARysgM_IU_3~pD%M_Rj_39FIAt6"
+            "blurhash": "L3Q9_@4n9E?axW4mD$Mx~q00Di%L"
           }
         ],
         "mentions": [],
         "tags": [],
         "emojis": [],
         "card": null,
-        "poll": null
+        "poll": null,
+        "interaction_policy": {
+          "can_favourite": {
+            "always": [
+              "public",
+              "me"
+            ],
+            "with_approval": []
+          },
+          "can_reply": {
+            "always": [
+              "public",
+              "me"
+            ],
+            "with_approval": []
+          },
+          "can_reblog": {
+            "always": [
+              "public",
+              "me"
+            ],
+            "with_approval": []
+          }
+        }
       }
     ],
     "rules": [
@@ -1028,8 +1147,8 @@ func (suite *ReportsGetTestSuite) TestReportsGetZeroLimit() {
 	suite.NoError(err)
 	suite.Len(reports, 2)
 
-	// Limit in Link header should be set to 100
-	suite.Equal(`<http://localhost:8080/api/v1/admin/reports?limit=100&max_id=01GP3AWY4CRDVRNZKW0TEAMB5R>; rel="next", <http://localhost:8080/api/v1/admin/reports?limit=100&min_id=01GP3DFY9XQ1TJMZT5BGAZPXX7>; rel="prev"`, link)
+	// Limit in Link header should be set to default (20)
+	suite.Equal(`<http://localhost:8080/api/v1/admin/reports?limit=20&max_id=01GP3AWY4CRDVRNZKW0TEAMB5R>; rel="next", <http://localhost:8080/api/v1/admin/reports?limit=20&min_id=01GP3DFY9XQ1TJMZT5BGAZPXX7>; rel="prev"`, link)
 }
 
 func (suite *ReportsGetTestSuite) TestReportsGetHighLimit() {

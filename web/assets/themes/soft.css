@@ -20,7 +20,7 @@
   --br-inner: 0.4rem; 
 
   /* Basic page styling (background + foreground) */
-  --bg: linear-gradient(-90deg, var(--soft-blue), var(--soft-pink), white, var(--soft-pink), var(--soft-blue));
+  --bg: var(--soft-pink);
   --bg-accent: var(--soft-pink-translucent);
   --fg: var(--gray1);
   --fg-reduced: var(--gray3);
@@ -41,6 +41,18 @@
   --boxshadow-border: 0.08rem solid var(--gray8);
 }
 
+/* Main page background */
+body {
+  background: linear-gradient(
+    -90deg,
+    var(--soft-blue),
+    var(--soft-pink),
+    white,
+    var(--soft-pink),
+    var(--soft-blue)
+  );
+}
+
 /* Scroll bar */
 html, body {
   scrollbar-color: var(--orange2) var(--soft-pink);
@@ -51,7 +63,9 @@ html, body {
   border: var(--boxshadow-border);
 }
 
-.profile .profile-header .basic-info .namerole .role {
+/* Role and bot badge borders */
+.profile .profile-header .basic-info .namerole .role,
+.profile .profile-header .basic-info .namerole .bot-username-wrapper .bot-legend-wrapper {
   border: var(--boxshadow-border);
 }
 

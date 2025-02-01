@@ -19,6 +19,7 @@ package cache
 
 import (
 	"crypto/rsa"
+	"strings"
 	"time"
 	"unsafe"
 
@@ -165,6 +166,7 @@ func calculateCacheMax(keySz, valSz uintptr, ratio float64) int {
 
 // totalOfRatios returns the total of all cache ratios added together.
 func totalOfRatios() float64 {
+
 	// NOTE: this is not performant calculating
 	// this every damn time (mainly the mutex unlocks
 	// required to access each config var). fortunately
@@ -188,10 +190,13 @@ func totalOfRatios() float64 {
 		config.GetCacheFollowIDsMemRatio() +
 		config.GetCacheFollowRequestMemRatio() +
 		config.GetCacheFollowRequestIDsMemRatio() +
-		config.GetCacheInstanceMemRatio() +
+		config.GetCacheFollowingTagIDsMemRatio() +
 		config.GetCacheInReplyToIDsMemRatio() +
+		config.GetCacheInstanceMemRatio() +
+		config.GetCacheInteractionRequestMemRatio() +
 		config.GetCacheListMemRatio() +
-		config.GetCacheListEntryMemRatio() +
+		config.GetCacheListIDsMemRatio() +
+		config.GetCacheListedIDsMemRatio() +
 		config.GetCacheMarkerMemRatio() +
 		config.GetCacheMediaMemRatio() +
 		config.GetCacheMentionMemRatio() +
@@ -199,7 +204,9 @@ func totalOfRatios() float64 {
 		config.GetCacheNotificationMemRatio() +
 		config.GetCachePollMemRatio() +
 		config.GetCachePollVoteMemRatio() +
+		config.GetCachePollVoteIDsMemRatio() +
 		config.GetCacheReportMemRatio() +
+		config.GetCacheSinBinStatusMemRatio() +
 		config.GetCacheStatusMemRatio() +
 		config.GetCacheStatusBookmarkMemRatio() +
 		config.GetCacheStatusBookmarkIDsMemRatio() +
@@ -210,6 +217,8 @@ func totalOfRatios() float64 {
 		config.GetCacheTokenMemRatio() +
 		config.GetCacheTombstoneMemRatio() +
 		config.GetCacheUserMemRatio() +
+		config.GetCacheUserMuteMemRatio() +
+		config.GetCacheUserMuteIDsMemRatio() +
 		config.GetCacheWebfingerMemRatio() +
 		config.GetCacheVisibilityMemRatio()
 }
@@ -319,6 +328,20 @@ func sizeofClient() uintptr {
 	}))
 }
 
+func sizeofConversation() uintptr {
+	return uintptr(size.Of(&gtsmodel.Conversation{
+		ID:               exampleID,
+		CreatedAt:        exampleTime,
+		UpdatedAt:        exampleTime,
+		AccountID:        exampleID,
+		OtherAccountIDs:  []string{exampleID, exampleID, exampleID},
+		OtherAccountsKey: strings.Join([]string{exampleID, exampleID, exampleID}, ","),
+		ThreadID:         exampleID,
+		LastStatusID:     exampleID,
+		Read:             util.Ptr(true),
+	}))
+}
+
 func sizeofEmoji() uintptr {
 	return uintptr(size.Of(&gtsmodel.Emoji{
 		ID:                     exampleID,
@@ -334,7 +357,6 @@ func sizeofEmoji() uintptr {
 		ImageStaticPath:        exampleURI,
 		ImageContentType:       "image/png",
 		ImageStaticContentType: "image/png",
-		ImageUpdatedAt:         exampleTime,
 		Disabled:               func() *bool { ok := false; return &ok }(),
 		URI:                    "http://localhost:8080/emoji/01F8MH9H8E4VG3KDYJR9EGPXCQ",
 		VisibleInPicker:        func() *bool { ok := true; return &ok }(),
@@ -426,6 +448,20 @@ func sizeofInstance() uintptr {
 	}))
 }
 
+func sizeofInteractionRequest() uintptr {
+	return uintptr(size.Of(&gtsmodel.InteractionRequest{
+		ID:                   exampleID,
+		CreatedAt:            exampleTime,
+		StatusID:             exampleID,
+		TargetAccountID:      exampleID,
+		InteractingAccountID: exampleID,
+		InteractionURI:       exampleURI,
+		InteractionType:      gtsmodel.InteractionAnnounce,
+		URI:                  exampleURI,
+		AcceptedAt:           exampleTime,
+	}))
+}
+
 func sizeofList() uintptr {
 	return uintptr(size.Of(&gtsmodel.List{
 		ID:            exampleID,
@@ -434,16 +470,6 @@ func sizeofList() uintptr {
 		Title:         exampleTextSmall,
 		AccountID:     exampleID,
 		RepliesPolicy: gtsmodel.RepliesPolicyFollowed,
-	}))
-}
-
-func sizeofListEntry() uintptr {
-	return uintptr(size.Of(&gtsmodel.ListEntry{
-		ID:        exampleID,
-		CreatedAt: exampleTime,
-		UpdatedAt: exampleTime,
-		ListID:    exampleID,
-		FollowID:  exampleID,
 	}))
 }
 
@@ -473,12 +499,10 @@ func sizeofMedia() uintptr {
 		File: gtsmodel.File{
 			Path:        exampleURI,
 			ContentType: "image/jpeg",
-			UpdatedAt:   exampleTime,
 		},
 		Thumbnail: gtsmodel.Thumbnail{
 			Path:        exampleURI,
 			ContentType: "image/jpeg",
-			UpdatedAt:   exampleTime,
 			URL:         exampleURI,
 			RemoteURL:   exampleURI,
 		},
@@ -566,6 +590,29 @@ func sizeofReport() uintptr {
 	}))
 }
 
+func sizeofSinBinStatus() uintptr {
+	return uintptr(size.Of(&gtsmodel.SinBinStatus{
+		ID:                  exampleID,
+		CreatedAt:           exampleTime,
+		UpdatedAt:           exampleTime,
+		URI:                 exampleURI,
+		URL:                 exampleURI,
+		Domain:              exampleURI,
+		AccountURI:          exampleURI,
+		InReplyToURI:        exampleURI,
+		Content:             exampleText,
+		AttachmentLinks:     []string{exampleURI, exampleURI},
+		MentionTargetURIs:   []string{exampleURI},
+		EmojiLinks:          []string{exampleURI},
+		PollOptions:         []string{exampleTextSmall, exampleTextSmall, exampleTextSmall, exampleTextSmall},
+		ContentWarning:      exampleTextSmall,
+		Visibility:          gtsmodel.VisibilityPublic,
+		Sensitive:           util.Ptr(false),
+		Language:            "en",
+		ActivityStreamsType: ap.ObjectNote,
+	}))
+}
+
 func sizeofStatus() uintptr {
 	return uintptr(size.Of(&gtsmodel.Status{
 		ID:                       exampleID,
@@ -594,9 +641,6 @@ func sizeofStatus() uintptr {
 		Language:                 "en",
 		CreatedWithApplicationID: exampleID,
 		Federated:                func() *bool { ok := true; return &ok }(),
-		Boostable:                func() *bool { ok := true; return &ok }(),
-		Replyable:                func() *bool { ok := true; return &ok }(),
-		Likeable:                 func() *bool { ok := true; return &ok }(),
 		ActivityStreamsType:      ap.ObjectNote,
 	}))
 }

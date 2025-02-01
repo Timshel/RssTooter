@@ -28,6 +28,7 @@ import (
 	apimodel "github.com/superseriousbusiness/gotosocial/internal/api/model"
 	apiutil "github.com/superseriousbusiness/gotosocial/internal/api/util"
 	"github.com/superseriousbusiness/gotosocial/internal/gtserror"
+	"github.com/superseriousbusiness/gotosocial/internal/util"
 )
 
 // webfingerURLFor returns the URL to try a webfinger request against, as
@@ -36,7 +37,7 @@ import (
 func (t *transport) webfingerURLFor(targetDomain string) (string, bool) {
 	url := "https://" + targetDomain + "/.well-known/webfinger"
 
-	wc := t.controller.state.Caches.GTS.Webfinger
+	wc := t.controller.state.Caches.Webfinger
 
 	// We're doing the manual locking/unlocking here to be able to
 	// safely call Cache.Get instead of Get, as the latter updates the
@@ -73,9 +74,16 @@ func prepWebfingerReq(ctx context.Context, loc, domain, username string) (*http.
 }
 
 func (t *transport) Finger(ctx context.Context, targetUsername string, targetDomain string) ([]byte, error) {
+	// Remotes seem to prefer having their punycode
+	// domain used in webfinger requests, so let's oblige.
+	punyDomain, err := util.Punify(targetDomain)
+	if err != nil {
+		return nil, gtserror.Newf("error punifying %s: %w", targetDomain, err)
+	}
+
 	// Generate new GET request
-	url, cached := t.webfingerURLFor(targetDomain)
-	req, err := prepWebfingerReq(ctx, url, targetDomain, targetUsername)
+	url, cached := t.webfingerURLFor(punyDomain)
+	req, err := prepWebfingerReq(ctx, url, punyDomain, targetUsername)
 	if err != nil {
 		return nil, err
 	}
@@ -95,7 +103,7 @@ func (t *transport) Finger(ctx context.Context, targetUsername string, targetDom
 			// If we got a response we consider successful on a cached URL, i.e one set
 			// by us later on when a host-meta based webfinger request succeeded, set it
 			// again here to renew the TTL
-			t.controller.state.Caches.GTS.Webfinger.Set(targetDomain, url)
+			t.controller.state.Caches.Webfinger.Set(punyDomain, url)
 		}
 
 		if rsp.StatusCode == http.StatusGone {
@@ -128,7 +136,7 @@ func (t *transport) Finger(ctx context.Context, targetUsername string, targetDom
 	// So far we've failed to get a successful response from the expected
 	// webfinger endpoint. Lets try and discover the webfinger endpoint
 	// through /.well-known/host-meta
-	host, err := t.webfingerFromHostMeta(ctx, targetDomain)
+	host, err := t.webfingerFromHostMeta(ctx, punyDomain)
 	if err != nil {
 		return nil, fmt.Errorf("failed to discover webfinger URL fallback for: %s through host-meta: %w", targetDomain, err)
 	}
@@ -142,7 +150,7 @@ func (t *transport) Finger(ctx context.Context, targetUsername string, targetDom
 
 	// Now that we have a different URL for the webfinger
 	// endpoint, try the request against that endpoint instead
-	req, err = prepWebfingerReq(ctx, host, targetDomain, targetUsername)
+	req, err = prepWebfingerReq(ctx, host, punyDomain, targetUsername)
 	if err != nil {
 		return nil, err
 	}
@@ -159,7 +167,7 @@ func (t *transport) Finger(ctx context.Context, targetUsername string, targetDom
 		// we asked for is gone. This means the endpoint itself is valid and we should
 		// cache it for future queries to the same domain
 		if rsp.StatusCode == http.StatusGone {
-			t.controller.state.Caches.GTS.Webfinger.Set(targetDomain, host)
+			t.controller.state.Caches.Webfinger.Set(targetDomain, host)
 			return nil, fmt.Errorf("account has been deleted/is gone")
 		}
 		// We've reached the end of the line here, both the original request
@@ -170,7 +178,7 @@ func (t *transport) Finger(ctx context.Context, targetUsername string, targetDom
 	// Set the URL in cache here, since host-meta told us this should be the
 	// valid one, it's different from the default and our request to it did
 	// not fail in any manner
-	t.controller.state.Caches.GTS.Webfinger.Set(targetDomain, host)
+	t.controller.state.Caches.Webfinger.Set(targetDomain, host)
 
 	return io.ReadAll(rsp.Body)
 }

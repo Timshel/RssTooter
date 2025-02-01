@@ -125,12 +125,13 @@ func (suite *ReportGetTestSuite) TestGetReport1() {
     "url": "http://fossbros-anonymous.io/@foss_satan",
     "avatar": "",
     "avatar_static": "",
-    "header": "http://localhost:8080/assets/default_header.png",
-    "header_static": "http://localhost:8080/assets/default_header.png",
+    "header": "http://localhost:8080/assets/default_header.webp",
+    "header_static": "http://localhost:8080/assets/default_header.webp",
+    "header_description": "Flat gray background (default header).",
     "followers_count": 0,
     "following_count": 0,
     "statuses_count": 3,
-    "last_status_at": "2021-09-11T09:40:37.000Z",
+    "last_status_at": "2021-09-11",
     "emojis": [],
     "fields": []
   }
@@ -145,7 +146,7 @@ func (suite *ReportGetTestSuite) TestGetReport2() {
 }
 
 func (suite *ReportGetTestSuite) TestGetReport3() {
-	report, err := suite.getReport(http.StatusBadRequest, `{"error":"Bad Request: no report id specified"}`, "")
+	report, err := suite.getReport(http.StatusBadRequest, `{"error":"Bad Request: required key id was not set or had empty value"}`, "")
 	suite.NoError(err)
 	suite.Nil(report)
 }

@@ -24,8 +24,8 @@ import (
 	"io"
 	"mime"
 	"net/url"
+	"os"
 	"path"
-	"syscall"
 	"time"
 
 	"codeberg.org/gruf/go-bytesize"
@@ -52,6 +52,12 @@ type PresignedURL struct {
 	Expiry time.Time // link expires at this time
 }
 
+// IsInvalidKey returns whether error is an invalid-key
+// type error returned by the underlying storage library.
+func IsInvalidKey(err error) bool {
+	return errors.Is(err, storage.ErrInvalidKey)
+}
+
 // IsAlreadyExist returns whether error is an already-exists
 // type error returned by the underlying storage library.
 func IsAlreadyExist(err error) bool {
@@ -73,6 +79,7 @@ type Driver struct {
 	Proxy          bool
 	Bucket         string
 	PresignedCache *ttl.Cache[string, PresignedURL]
+	RedirectURL    string
 }
 
 // Get returns the byte value for key in storage.
@@ -90,12 +97,52 @@ func (d *Driver) Put(ctx context.Context, key string, value []byte) (int, error)
 	return d.Storage.WriteBytes(ctx, key, value)
 }
 
-// PutStream writes the bytes from supplied reader at key in the storage
-func (d *Driver) PutStream(ctx context.Context, key string, r io.Reader) (int64, error) {
-	return d.Storage.WriteStream(ctx, key, r)
+// PutFile moves the contents of file at path, to storage.Driver{} under given key (with content-type if supported).
+func (d *Driver) PutFile(ctx context.Context, key, filepath, contentType string) (int64, error) {
+	// Open file at path for reading.
+	file, err := os.Open(filepath)
+	if err != nil {
+		return 0, gtserror.Newf("error opening file %s: %w", filepath, err)
+	}
+
+	var sz int64
+
+	switch d := d.Storage.(type) {
+	case *s3.S3Storage:
+		var info minio.UploadInfo
+
+		// For S3 storage, write the file but specifically pass in the
+		// content-type as an extra option. This handles the case of media
+		// being served via CDN redirect (where we don't handle content-type).
+		info, err = d.PutObject(ctx, key, file, minio.PutObjectOptions{
+			ContentType: contentType,
+		})
+
+		// Get size from
+		// uploaded info.
+		sz = info.Size
+
+	default:
+		// Write the file data to storage under key. Note
+		// that for disk.DiskStorage{} this should end up
+		// being a highly optimized Linux sendfile syscall.
+		sz, err = d.WriteStream(ctx, key, file)
+	}
+
+	// Wrap write error.
+	if err != nil {
+		err = gtserror.Newf("error writing file %s: %w", key, err)
+	}
+
+	// Close the file: done with it.
+	if e := file.Close(); e != nil {
+		log.Errorf(ctx, "error closing file %s: %v", filepath, e)
+	}
+
+	return sz, err
 }
 
-// Remove attempts to remove the supplied key (and corresponding value) from storage.
+// Delete attempts to remove the supplied key (and corresponding value) from storage.
 func (d *Driver) Delete(ctx context.Context, key string) error {
 	return d.Storage.Remove(ctx, key)
 }
@@ -133,12 +180,27 @@ func (d *Driver) URL(ctx context.Context, key string) *PresignedURL {
 		return &e.Value
 	}
 
-	u, err := s3.Client().PresignedGetObject(ctx, d.Bucket, key, urlCacheTTL, url.Values{
-		"response-content-type": []string{mime.TypeByExtension(path.Ext(key))},
-	})
-	if err != nil {
-		// If URL request fails, fallback is to fetch the file. So ignore the error here
-		return nil
+	var (
+		u   *url.URL
+		err error
+	)
+
+	if d.RedirectURL != "" {
+		u, err = url.Parse(d.RedirectURL + "/" + key)
+		if err != nil {
+			// If URL parsing fails, fallback is to
+			// fetch the file. So ignore the error here
+			return nil
+		}
+	} else {
+		u, err = s3.Client().PresignedGetObject(ctx, d.Bucket, key, urlCacheTTL, url.Values{
+			"response-content-type": []string{mime.TypeByExtension(path.Ext(key))},
+		})
+		if err != nil {
+			// If URL request fails, fallback is to
+			// fetch the file. So ignore the error here
+			return nil
+		}
 	}
 
 	psu := PresignedURL{
@@ -172,6 +234,14 @@ func (d *Driver) ProbeCSPUri(ctx context.Context) (string, error) {
 	s3, ok := d.Storage.(*s3.S3Storage)
 	if !ok || d.Proxy {
 		return "", nil
+	}
+
+	// If an S3 redirect URL is set, just
+	// return this URL without probing; we
+	// likely don't have write access on it
+	// anyway since it's probs a CDN bucket.
+	if d.RedirectURL != "" {
+		return d.RedirectURL + "/", nil
 	}
 
 	const cspKey = "gotosocial-csp-probe"
@@ -220,13 +290,9 @@ func NewFileStorage() (*Driver, error) {
 	// Load runtime configuration
 	basePath := config.GetStorageLocalBasePath()
 
-	// Use default disk config but with
-	// increased write buffer size and
-	// 'exclusive' bit sets when creating
-	// files to ensure we don't overwrite
-	// existing files unless intending to.
+	// Use default disk config with
+	// increased write buffer size.
 	diskCfg := disk.DefaultConfig()
-	diskCfg.OpenWrite.Flags |= syscall.O_EXCL
 	diskCfg.WriteBufSize = int(16 * bytesize.KiB)
 
 	// Open the disk storage implementation
@@ -247,6 +313,7 @@ func NewS3Storage() (*Driver, error) {
 	secret := config.GetStorageS3SecretKey()
 	secure := config.GetStorageS3UseSSL()
 	bucket := config.GetStorageS3BucketName()
+	redirectURL := config.GetStorageS3RedirectURL()
 
 	// Open the s3 storage implementation
 	s3, err := s3.Open(endpoint, bucket, &s3.Config{
@@ -254,11 +321,7 @@ func NewS3Storage() (*Driver, error) {
 			Creds:  credentials.NewStaticV4(access, secret, ""),
 			Secure: secure,
 		},
-		GetOpts:      minio.GetObjectOptions{},
-		PutOpts:      minio.PutObjectOptions{},
 		PutChunkSize: 5 * 1024 * 1024, // 5MiB
-		StatOpts:     minio.StatObjectOptions{},
-		RemoveOpts:   minio.RemoveObjectOptions{},
 		ListSize:     200,
 	})
 	if err != nil {
@@ -274,5 +337,6 @@ func NewS3Storage() (*Driver, error) {
 		Bucket:         config.GetStorageS3BucketName(),
 		Storage:        s3,
 		PresignedCache: presignedCache,
+		RedirectURL:    redirectURL,
 	}, nil
 }

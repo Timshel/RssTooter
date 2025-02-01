@@ -30,6 +30,7 @@ import (
 	"github.com/superseriousbusiness/gotosocial/internal/gtscontext"
 	"github.com/superseriousbusiness/gotosocial/internal/gtsmodel"
 	"github.com/superseriousbusiness/gotosocial/internal/httpclient"
+	"github.com/superseriousbusiness/gotosocial/internal/transport/delivery"
 	"github.com/superseriousbusiness/httpsig"
 )
 
@@ -50,6 +51,10 @@ type Transport interface {
 	// transport client, retrying on certain preset errors.
 	POST(*http.Request, []byte) (*http.Response, error)
 
+	// SignDelivery adds HTTP request signing client "middleware"
+	// to the request context within given delivery.Delivery{}.
+	SignDelivery(*delivery.Delivery) error
+
 	// Deliver sends an ActivityStreams object.
 	Deliver(ctx context.Context, obj map[string]interface{}, to *url.URL) error
 
@@ -67,8 +72,8 @@ type Transport interface {
 	// Dereference fetches the ActivityStreams object located at this IRI with a GET request.
 	Dereference(ctx context.Context, iri *url.URL) (*http.Response, error)
 
-	// DereferenceMedia fetches the given media attachment IRI, returning the reader and filesize.
-	DereferenceMedia(ctx context.Context, iri *url.URL) (io.ReadCloser, int64, error)
+	// DereferenceMedia fetches the given media attachment IRI, returning the reader limited to given max.
+	DereferenceMedia(ctx context.Context, iri *url.URL, maxsz int64) (io.ReadCloser, error)
 
 	// DereferenceInstance dereferences remote instance information, first by checking /api/v1/instance, and then by checking /.well-known/nodeinfo.
 	DereferenceInstance(ctx context.Context, iri *url.URL) (*gtsmodel.Instance, error)

@@ -18,9 +18,7 @@
 package v2
 
 import (
-	"fmt"
 	"net/http"
-	"strconv"
 
 	"github.com/gin-gonic/gin"
 	apimodel "github.com/superseriousbusiness/gotosocial/internal/api/model"
@@ -192,7 +190,7 @@ func validateNormalizeCreateFilter(form *apimodel.FilterCreateRequestV2) error {
 	if err := validate.FilterTitle(form.Title); err != nil {
 		return err
 	}
-	action := util.PtrValueOr(form.FilterAction, apimodel.FilterActionWarn)
+	action := util.PtrOrValue(form.FilterAction, apimodel.FilterActionWarn)
 	if err := validate.FilterAction(action); err != nil {
 		return err
 	}
@@ -228,24 +226,22 @@ func validateNormalizeCreateFilter(form *apimodel.FilterCreateRequestV2) error {
 	form.FilterAction = util.Ptr(action)
 
 	// Normalize filter expiry if necessary.
-	// If we parsed this as JSON, expires_in
-	// may be either a float64 or a string.
-	if ei := form.ExpiresInI; ei != nil {
-		switch e := ei.(type) {
-		case float64:
-			form.ExpiresIn = util.Ptr(int(e))
-
-		case string:
-			expiresIn, err := strconv.Atoi(e)
-			if err != nil {
-				return fmt.Errorf("could not parse expires_in value %s as integer: %w", e, err)
-			}
-
-			form.ExpiresIn = &expiresIn
-
-		default:
-			return fmt.Errorf("could not parse expires_in type %T as integer", ei)
+	if form.ExpiresInI != nil {
+		// If we parsed this as JSON, expires_in
+		// may be either a float64 or a string.
+		var err error
+		form.ExpiresIn, err = apiutil.ParseDuration(
+			form.ExpiresInI,
+			"expires_in",
+		)
+		if err != nil {
+			return err
 		}
+	}
+
+	// Interpret zero as indefinite duration.
+	if form.ExpiresIn != nil && *form.ExpiresIn == 0 {
+		form.ExpiresIn = nil
 	}
 
 	// Normalize and validate new keywords and statuses.
@@ -253,7 +249,7 @@ func validateNormalizeCreateFilter(form *apimodel.FilterCreateRequestV2) error {
 		if err := validate.FilterKeyword(formKeyword.Keyword); err != nil {
 			return err
 		}
-		form.Keywords[i].WholeWord = util.Ptr(util.PtrValueOr(formKeyword.WholeWord, false))
+		form.Keywords[i].WholeWord = util.Ptr(util.PtrOrValue(formKeyword.WholeWord, false))
 	}
 	for _, formStatus := range form.Statuses {
 		if err := validate.ULID(formStatus.StatusID, "status_id"); err != nil {

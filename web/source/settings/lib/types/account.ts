@@ -53,8 +53,12 @@ export interface Account {
 	url: string,
 	avatar: string,
 	avatar_static: string,
+	avatar_description?: string,
+	avatar_media_id?: string,
 	header: string,
 	header_static: string,
+	header_description?: string,
+	header_media_id?: string,
 	followers_count: number,
 	following_count: number,
 	statuses_count: number,
@@ -64,6 +68,17 @@ export interface Account {
 	enable_rss: boolean,
 	role: any,
 	suspended?: boolean,
+	source?: AccountSource;
+}
+
+export interface AccountSource {
+	fields: any;
+	follow_requests_count: number;
+	language: string;
+	note: string;
+	privacy: string;
+	sensitive: boolean;
+	status_content_type: string;
 }
 
 export interface SearchAccountParams {
@@ -98,4 +113,14 @@ export interface ActionAccountParams {
 	id: string;
 	action: "suspend";
 	reason: string;
+}
+
+export interface AccountExportStats {
+	media_storage: string;
+	followers_count: number;
+	following_count: number;
+	statuses_count: number;
+	lists_count: number;
+	blocks_count: number;
+	mutes_count: number;
 }

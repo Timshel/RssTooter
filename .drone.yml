@@ -34,15 +34,18 @@ steps:
         path: /root/.cache/go-build
       - name: go-src
         path: /go
+      - name: wazero-compilation-cache
+        path: /root/.cache/wazero
     environment:
       CGO_ENABLED: "0"
+      GTS_WAZERO_COMPILATION_CACHE: "/root/.cache/wazero"
     commands:
       - apk update --no-cache && apk add git
       - >-
         go test
         -failfast
         -timeout=20m
-        -tags "wasmsqlite3 netgo osusergo static_build kvformat timetzdata"
+        -tags "netgo osusergo static_build kvformat timetzdata"
         ./...
       - ./test/envparsing.sh
       - ./test/swagger.sh
@@ -91,7 +94,7 @@ steps:
           - pull_request
 
   - name: snapshot
-    image: superseriousbusiness/gotosocial-drone-build:0.6.0 # https://github.com/superseriousbusiness/gotosocial-drone-build
+    image: superseriousbusiness/gotosocial-drone-build:0.6.2 # https://github.com/superseriousbusiness/gotosocial-drone-build
     volumes:
       - name: go-build-cache
         path: /root/.cache/go-build
@@ -120,6 +123,12 @@ steps:
       - docker push superseriousbusiness/gotosocial:snapshot-amd64
       - docker manifest create superseriousbusiness/gotosocial:snapshot superseriousbusiness/gotosocial:snapshot-armv6 superseriousbusiness/gotosocial:snapshot-armv7 superseriousbusiness/gotosocial:snapshot-amd64 superseriousbusiness/gotosocial:snapshot-arm64v8
       - docker manifest push superseriousbusiness/gotosocial:snapshot
+      - docker push superseriousbusiness/gotosocial:snapshot-armv6-moderncsqlite
+      - docker push superseriousbusiness/gotosocial:snapshot-armv7-moderncsqlite
+      - docker push superseriousbusiness/gotosocial:snapshot-arm64v8-moderncsqlite
+      - docker push superseriousbusiness/gotosocial:snapshot-amd64-moderncsqlite
+      - docker manifest create superseriousbusiness/gotosocial:snapshot-moderncsqlite superseriousbusiness/gotosocial:snapshot-armv6-moderncsqlite superseriousbusiness/gotosocial:snapshot-armv7-moderncsqlite superseriousbusiness/gotosocial:snapshot-amd64-moderncsqlite superseriousbusiness/gotosocial:snapshot-arm64v8-moderncsqlite
+      - docker manifest push superseriousbusiness/gotosocial:snapshot-moderncsqlite
       
       # Publish binary .tar.gz snapshots to S3.
       - /go/snapshot_publish.sh
@@ -132,7 +141,7 @@ steps:
           - main
 
   - name: release
-    image: superseriousbusiness/gotosocial-drone-build:0.6.0 # https://github.com/superseriousbusiness/gotosocial-drone-build
+    image: superseriousbusiness/gotosocial-drone-build:0.6.2 # https://github.com/superseriousbusiness/gotosocial-drone-build
     volumes:
       - name: go-build-cache
         path: /root/.cache/go-build
@@ -147,7 +156,17 @@ steps:
     commands:
       - git fetch --tags
       - /go/dockerlogin.sh
-      - goreleaser release --clean
+      
+      # When releasing, compare commits to the most recent tag that is not the
+      # current one AND is not a release candidate tag (ie., no "rc" in the name).
+      #
+      # The DRONE_TAG env var should point to the tag that triggered this build.
+      # See: https://docs.drone.io/pipeline/environment/reference/drone-tag/ 
+      #
+      # Note, this may cause annoyances when doing backport releases, for example,
+      # releasing v0.10.1 when we've already released v0.15.0 or whatever, but
+      # they should only be superficial annoyances related to the release notes.
+      - GORELEASER_PREVIOUS_TAG=$(git tag -l | grep -v "rc\|${DRONE_TAG}" | sort -V -r | head -n 1) goreleaser release --clean
     when:
       event:
         include:
@@ -191,7 +210,7 @@ clone:
 
 steps:
   - name: mirror
-    image: superseriousbusiness/gotosocial-drone-build:0.6.0
+    image: superseriousbusiness/gotosocial-drone-build:0.6.2
     environment:
       ORIGIN_REPO: https://github.com/superseriousbusiness/gotosocial
       TARGET_REPO: https://codeberg.org/superseriousbusiness/gotosocial
@@ -204,6 +223,6 @@ steps:
 
 ---
 kind: signature
-hmac: 2e74313f4192b3e6daf6d1d00a7c3796019d93da7ce7e0a77208ccc3c37089b0
+hmac: 1b89e3a538fbca72eb9a0b398cd82f09a774ba3649013e19d36012eda327e83f
 
 ...

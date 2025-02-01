@@ -34,13 +34,16 @@ const (
 
 	/* Common keys */
 
-	IDKey       = "id"
-	LimitKey    = "limit"
-	LocalKey    = "local"
-	MaxIDKey    = "max_id"
-	SinceIDKey  = "since_id"
-	MinIDKey    = "min_id"
-	UsernameKey = "username"
+	IDKey              = "id"
+	LimitKey           = "limit"
+	LocalKey           = "local"
+	MaxIDKey           = "max_id"
+	SinceIDKey         = "since_id"
+	MinIDKey           = "min_id"
+	UsernameKey        = "username"
+	AccountIDKey       = "account_id"
+	TargetAccountIDKey = "target_account_id"
+	ResolvedKey        = "resolved"
 
 	/* AP endpoint keys */
 
@@ -55,7 +58,6 @@ const (
 	SearchQueryKey             = "q"
 	SearchResolveKey           = "resolve"
 	SearchTypeKey              = "type"
-	SearchAccountIDKey         = "account_id"
 
 	/* Tag keys */
 
@@ -89,6 +91,13 @@ const (
 	AdminPermissionsKey = "permissions"
 	AdminRoleIDsKey     = "role_ids[]"
 	AdminInvitedByKey   = "invited_by"
+
+	/* Interaction policy + request keys */
+
+	InteractionStatusIDKey   = "status_id"
+	InteractionFavouritesKey = "favourites"
+	InteractionRepliesKey    = "replies"
+	InteractionReblogsKey    = "reblogs"
 )
 
 /*
@@ -130,6 +139,10 @@ func ParseLimit(value string, defaultValue int, max, min int) (int, gtserror.Wit
 
 func ParseLocal(value string, defaultValue bool) (bool, gtserror.WithCode) {
 	return parseBool(value, defaultValue, LocalKey)
+}
+
+func ParseResolved(value string, defaultValue *bool) (*bool, gtserror.WithCode) {
+	return parseBoolPtr(value, defaultValue, ResolvedKey)
 }
 
 func ParseSearchExcludeUnreviewed(value string, defaultValue bool) (bool, gtserror.WithCode) {
@@ -186,6 +199,18 @@ func ParseAdminSuspended(value string, defaultValue bool) (bool, gtserror.WithCo
 
 func ParseAdminStaff(value string, defaultValue bool) (bool, gtserror.WithCode) {
 	return parseBool(value, defaultValue, AdminStaffKey)
+}
+
+func ParseInteractionFavourites(value string, defaultValue bool) (bool, gtserror.WithCode) {
+	return parseBool(value, defaultValue, InteractionFavouritesKey)
+}
+
+func ParseInteractionReplies(value string, defaultValue bool) (bool, gtserror.WithCode) {
+	return parseBool(value, defaultValue, InteractionRepliesKey)
+}
+
+func ParseInteractionReblogs(value string, defaultValue bool) (bool, gtserror.WithCode) {
+	return parseBool(value, defaultValue, InteractionReblogsKey)
 }
 
 /*
@@ -287,6 +312,19 @@ func parseBool(value string, defaultValue bool, key string) (bool, gtserror.With
 	}
 
 	return i, nil
+}
+
+func parseBoolPtr(value string, defaultValue *bool, key string) (*bool, gtserror.WithCode) {
+	if value == "" {
+		return defaultValue, nil
+	}
+
+	i, err := strconv.ParseBool(value)
+	if err != nil {
+		return defaultValue, parseError(key, value, defaultValue, err)
+	}
+
+	return &i, nil
 }
 
 func parseInt(value string, defaultValue int, max int, min int, key string) (int, gtserror.WithCode) {

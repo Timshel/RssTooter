@@ -92,7 +92,7 @@ func (p *Processor) StatusesGet(
 
 	// Filtering + serialization process is the same for
 	// both pinned status queries and 'normal' ones.
-	filtered, err := p.filter.StatusesVisible(ctx, requestingAccount, statuses)
+	filtered, err := p.visFilter.StatusesVisible(ctx, requestingAccount, statuses)
 	if err != nil {
 		return nil, gtserror.NewErrorInternalError(err)
 	}
@@ -159,7 +159,7 @@ func (p *Processor) WebStatusesGet(
 		return nil, gtserror.NewErrorNotFound(err)
 	}
 
-	statuses, err := p.state.DB.GetAccountWebStatuses(ctx, targetAccountID, 10, maxID)
+	statuses, err := p.state.DB.GetAccountWebStatuses(ctx, account, 10, maxID)
 	if err != nil && !errors.Is(err, db.ErrNoEntries) {
 		return nil, gtserror.NewErrorInternalError(err)
 	}
@@ -179,7 +179,7 @@ func (p *Processor) WebStatusesGet(
 
 	for _, s := range statuses {
 		// Convert fetched statuses to web view statuses.
-		item, err := p.converter.StatusToWebStatus(ctx, s, nil)
+		item, err := p.converter.StatusToWebStatus(ctx, s)
 		if err != nil {
 			log.Errorf(ctx, "error convering to web status: %v", err)
 			continue
@@ -198,21 +198,27 @@ func (p *Processor) WebStatusesGet(
 func (p *Processor) WebStatusesGetPinned(
 	ctx context.Context,
 	targetAccountID string,
-) ([]*apimodel.Status, gtserror.WithCode) {
+) ([]*apimodel.WebStatus, gtserror.WithCode) {
 	statuses, err := p.state.DB.GetAccountPinnedStatuses(ctx, targetAccountID)
 	if err != nil && !errors.Is(err, db.ErrNoEntries) {
 		return nil, gtserror.NewErrorInternalError(err)
 	}
 
-	webStatuses := make([]*apimodel.Status, 0, len(statuses))
+	webStatuses := make([]*apimodel.WebStatus, 0, len(statuses))
 	for _, status := range statuses {
-		if status.Visibility != gtsmodel.VisibilityPublic {
-			// Skip non-public
-			// pinned status.
+		// Ensure visible via the web.
+		visible, err := p.visFilter.StatusVisible(ctx, nil, status)
+		if err != nil {
+			log.Errorf(ctx, "error checking status visibility: %v", err)
 			continue
 		}
 
-		webStatus, err := p.converter.StatusToWebStatus(ctx, status, nil)
+		if !visible {
+			// Don't serve.
+			continue
+		}
+
+		webStatus, err := p.converter.StatusToWebStatus(ctx, status)
 		if err != nil {
 			log.Errorf(ctx, "error convering to web status: %v", err)
 			continue

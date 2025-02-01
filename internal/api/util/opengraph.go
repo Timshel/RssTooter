@@ -84,7 +84,7 @@ func OGBase(instance *apimodel.InstanceV1) *OGMeta {
 // WithAccount uses the given account to build an ogMeta
 // struct specific to that account. It's suitable for serving
 // at account profile pages.
-func (og *OGMeta) WithAccount(account *apimodel.Account) *OGMeta {
+func (og *OGMeta) WithAccount(account *apimodel.WebAccount) *OGMeta {
 	og.Title = AccountTitle(account, og.SiteName)
 	og.Type = "profile"
 	og.URL = account.URL
@@ -105,7 +105,7 @@ func (og *OGMeta) WithAccount(account *apimodel.Account) *OGMeta {
 // WithStatus uses the given status to build an ogMeta
 // struct specific to that status. It's suitable for serving
 // at status pages.
-func (og *OGMeta) WithStatus(status *apimodel.Status) *OGMeta {
+func (og *OGMeta) WithStatus(status *apimodel.WebStatus) *OGMeta {
 	og.Title = "Post by " + AccountTitle(status.Account, og.SiteName)
 	og.Type = "article"
 	if status.Language != nil {
@@ -148,7 +148,7 @@ func (og *OGMeta) WithStatus(status *apimodel.Status) *OGMeta {
 }
 
 // AccountTitle parses a page title from account and accountDomain
-func AccountTitle(account *apimodel.Account, accountDomain string) string {
+func AccountTitle(account *apimodel.WebAccount, accountDomain string) string {
 	user := "@" + account.Acct + "@" + accountDomain
 
 	if len(account.DisplayName) == 0 {

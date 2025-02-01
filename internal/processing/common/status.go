@@ -25,6 +25,7 @@ import (
 	"github.com/superseriousbusiness/gotosocial/internal/db"
 	"github.com/superseriousbusiness/gotosocial/internal/federation/dereferencing"
 	statusfilter "github.com/superseriousbusiness/gotosocial/internal/filter/status"
+	"github.com/superseriousbusiness/gotosocial/internal/filter/usermute"
 	"github.com/superseriousbusiness/gotosocial/internal/gtserror"
 	"github.com/superseriousbusiness/gotosocial/internal/gtsmodel"
 	"github.com/superseriousbusiness/gotosocial/internal/log"
@@ -50,6 +51,7 @@ func (p *Processor) GetTargetStatusBy(
 	// Fetch the target status from db.
 	target, err := getTargetFromDB()
 	if err != nil && !errors.Is(err, db.ErrNoEntries) {
+		err := gtserror.Newf("error getting from db: %w", err)
 		return nil, false, gtserror.NewErrorInternalError(err)
 	}
 
@@ -63,39 +65,29 @@ func (p *Processor) GetTargetStatusBy(
 	}
 
 	// Check whether target status is visible to requesting account.
-	visible, err = p.filter.StatusVisible(ctx, requester, target)
+	visible, err = p.visFilter.StatusVisible(ctx, requester, target)
 	if err != nil {
+		err := gtserror.Newf("error checking visibility: %w", err)
 		return nil, false, gtserror.NewErrorInternalError(err)
 	}
 
 	if requester != nil && visible {
-		// We only bother refreshing if this status
-		// is visible to requester, AND there *is*
-		// a requester (i.e. request is authorized)
-		// to prevent a possible DOS vector.
-
-		if window != nil {
-			// Window is explicitly set, so likely
-			// tighter than the default window.
-			// Do refresh synchronously.
-			_, _, err := p.federator.RefreshStatus(ctx,
-				requester.Username,
-				target,
-				nil,
-				window,
-			)
-			if err != nil {
-				log.Errorf(ctx, "error refreshing status: %v", err)
-			}
-		} else {
-			// Only refresh async *if* out-of-date.
-			p.federator.RefreshStatusAsync(ctx,
-				requester.Username,
-				target,
-				nil,
-				nil,
-			)
+		// Only refresh status if visible to requester,
+		// and there is *authorized* requester to prevent
+		// a possible DOS vector for unauthorized clients.
+		latest, _, err := p.federator.RefreshStatus(ctx,
+			requester.Username,
+			target,
+			nil,
+			window,
+		)
+		if err != nil {
+			log.Errorf(ctx, "error refreshing target %s: %v", target.URI, err)
+			return target, visible, nil
 		}
+
+		// Set latest.
+		target = latest
 	}
 
 	return target, visible, nil
@@ -185,12 +177,87 @@ func (p *Processor) GetAPIStatus(
 	apiStatus *apimodel.Status,
 	errWithCode gtserror.WithCode,
 ) {
-	apiStatus, err := p.converter.StatusToAPIStatus(ctx, target, requester, statusfilter.FilterContextNone, nil, nil)
+	apiStatus, err := p.converter.StatusToAPIStatus(ctx,
+		target,
+		requester,
+		statusfilter.FilterContextNone,
+		nil,
+		nil,
+	)
 	if err != nil {
-		err = gtserror.Newf("error converting status: %w", err)
+		err := gtserror.Newf("error converting: %w", err)
 		return nil, gtserror.NewErrorInternalError(err)
 	}
 	return apiStatus, nil
+}
+
+// GetVisibleAPIStatuses converts a slice of statuses to API
+// model statuses, filtering according to visibility to requester
+// along with given filter context, filters and user mutes.
+//
+// Please note that all errors will be logged at ERROR level,
+// but will not be returned. Callers are likely to run into
+// show-stopping errors in the lead-up to this function.
+func (p *Processor) GetVisibleAPIStatuses(
+	ctx context.Context,
+	requester *gtsmodel.Account,
+	statuses []*gtsmodel.Status,
+	filterContext statusfilter.FilterContext,
+	filters []*gtsmodel.Filter,
+	userMutes []*gtsmodel.UserMute,
+) []apimodel.Status {
+
+	// Start new log entry with
+	// the calling function name
+	// as a field in each entry.
+	l := log.WithContext(ctx).
+		WithField("caller", log.Caller(3))
+
+	// Compile mutes to useable user mutes for type converter.
+	compUserMutes := usermute.NewCompiledUserMuteList(userMutes)
+
+	// Iterate filtered statuses for conversion to API model.
+	apiStatuses := make([]apimodel.Status, 0, len(statuses))
+	for _, status := range statuses {
+
+		// Check whether status is visible to requester.
+		visible, err := p.visFilter.StatusVisible(ctx,
+			requester,
+			status,
+		)
+		if err != nil {
+			l.Errorf("error checking visibility: %v", err)
+			continue
+		}
+
+		if !visible {
+			continue
+		}
+
+		// Convert to API status, taking mute / filter into account.
+		apiStatus, err := p.converter.StatusToAPIStatus(ctx,
+			status,
+			requester,
+			filterContext,
+			filters,
+			compUserMutes,
+		)
+		if err != nil && !errors.Is(err, statusfilter.ErrHideStatus) {
+			l.Errorf("error converting: %v", err)
+			continue
+		}
+
+		if apiStatus == nil {
+			// Status was
+			// filtered out.
+			continue
+		}
+
+		// Append converted status to return slice.
+		apiStatuses = append(apiStatuses, *apiStatus)
+	}
+
+	return apiStatuses
 }
 
 // InvalidateTimelinedStatus is a shortcut function for invalidating the cached
@@ -200,7 +267,7 @@ func (p *Processor) GetAPIStatus(
 // such invalidation will, in that case, be handled by the processor instead.
 func (p *Processor) InvalidateTimelinedStatus(ctx context.Context, accountID string, statusID string) error {
 	// Get lists first + bail if this fails.
-	lists, err := p.state.DB.GetListsForAccountID(ctx, accountID)
+	lists, err := p.state.DB.GetListsByAccountID(ctx, accountID)
 	if err != nil {
 		return gtserror.Newf("db error getting lists for account %s: %w", accountID, err)
 	}

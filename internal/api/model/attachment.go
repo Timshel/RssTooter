@@ -90,12 +90,27 @@ type Attachment struct {
 	// A hash computed by the BlurHash algorithm, for generating colorful preview thumbnails when media has not been downloaded yet.
 	// See https://github.com/woltapp/blurhash
 	Blurhash *string `json:"blurhash"`
+}
 
-	// Additional fields not exposed via JSON
-	// (used only internally for templating etc).
+// WebAttachment is like Attachment, but with
+// additional fields not exposed via JSON;
+// used only internally for templating etc.
+//
+// swagger:ignore
+type WebAttachment struct {
+	*Attachment
 
-	// Parent status of this media is sensitive.
-	Sensitive bool `json:"-"`
+	// Parent status of this
+	// media is sensitive.
+	Sensitive bool
+
+	// MIME type of
+	// the attachment.
+	MIMEType string
+
+	// MIME type of
+	// the thumbnail.
+	PreviewMIMEType string
 }
 
 // MediaMeta models media metadata.
@@ -145,7 +160,7 @@ type MediaDimensions struct {
 	Duration float32 `json:"duration,omitempty"`
 	// Bitrate of the media in bits per second.
 	// example: 1000000
-	Bitrate int `json:"bitrate,omitempty"`
+	Bitrate uint64 `json:"bitrate,omitempty"`
 	// Size of the media, in the format `[width]x[height]`.
 	// Not set for audio.
 	// example: 1920x1080

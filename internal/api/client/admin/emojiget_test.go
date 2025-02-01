@@ -27,6 +27,7 @@ import (
 
 	"github.com/stretchr/testify/suite"
 	"github.com/superseriousbusiness/gotosocial/internal/api/client/admin"
+	apiutil "github.com/superseriousbusiness/gotosocial/internal/api/util"
 )
 
 type EmojiGetTestSuite struct {
@@ -39,7 +40,7 @@ func (suite *EmojiGetTestSuite) TestEmojiGet1() {
 
 	path := admin.EmojiPathWithID
 	ctx := suite.newContext(recorder, http.MethodGet, nil, path, "application/json")
-	ctx.AddParam(admin.IDKey, testEmoji.ID)
+	ctx.AddParam(apiutil.IDKey, testEmoji.ID)
 
 	suite.adminModule.EmojiGETHandler(ctx)
 	suite.Equal(http.StatusOK, recorder.Code)
@@ -59,7 +60,7 @@ func (suite *EmojiGetTestSuite) TestEmojiGet1() {
   "id": "01F8MH9H8E4VG3KDYJR9EGPXCQ",
   "disabled": false,
   "updated_at": "2021-09-20T10:40:37.000Z",
-  "total_file_size": 47115,
+  "total_file_size": 42794,
   "content_type": "image/png",
   "uri": "http://localhost:8080/emoji/01F8MH9H8E4VG3KDYJR9EGPXCQ"
 }`, dst.String())
@@ -71,7 +72,7 @@ func (suite *EmojiGetTestSuite) TestEmojiGet2() {
 
 	path := admin.EmojiPathWithID
 	ctx := suite.newContext(recorder, http.MethodGet, nil, path, "application/json")
-	ctx.AddParam(admin.IDKey, testEmoji.ID)
+	ctx.AddParam(apiutil.IDKey, testEmoji.ID)
 
 	suite.adminModule.EmojiGETHandler(ctx)
 	suite.Equal(http.StatusOK, recorder.Code)
@@ -91,7 +92,7 @@ func (suite *EmojiGetTestSuite) TestEmojiGet2() {
   "disabled": false,
   "domain": "fossbros-anonymous.io",
   "updated_at": "2020-03-18T12:12:00.000Z",
-  "total_file_size": 21697,
+  "total_file_size": 19854,
   "content_type": "image/png",
   "uri": "http://fossbros-anonymous.io/emoji/01GD5KP5CQEE1R3X43Y1EHS2CW"
 }`, dst.String())
@@ -102,7 +103,7 @@ func (suite *EmojiGetTestSuite) TestEmojiGetNotFound() {
 
 	path := admin.EmojiPathWithID
 	ctx := suite.newContext(recorder, http.MethodGet, nil, path, "application/json")
-	ctx.AddParam(admin.IDKey, "01GF8VRXX1R00X7XH8973Z29R1")
+	ctx.AddParam(apiutil.IDKey, "01GF8VRXX1R00X7XH8973Z29R1")
 
 	suite.adminModule.EmojiGETHandler(ctx)
 	suite.Equal(http.StatusNotFound, recorder.Code)

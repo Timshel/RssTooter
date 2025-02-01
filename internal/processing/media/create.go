@@ -19,10 +19,13 @@ package media
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 
+	"codeberg.org/gruf/go-iotools"
 	apimodel "github.com/superseriousbusiness/gotosocial/internal/api/model"
+	"github.com/superseriousbusiness/gotosocial/internal/config"
 	"github.com/superseriousbusiness/gotosocial/internal/gtserror"
 	"github.com/superseriousbusiness/gotosocial/internal/gtsmodel"
 	"github.com/superseriousbusiness/gotosocial/internal/media"
@@ -30,30 +33,48 @@ import (
 
 // Create creates a new media attachment belonging to the given account, using the request form.
 func (p *Processor) Create(ctx context.Context, account *gtsmodel.Account, form *apimodel.AttachmentRequest) (*apimodel.Attachment, gtserror.WithCode) {
-	data := func(innerCtx context.Context) (io.ReadCloser, int64, error) {
-		f, err := form.File.Open()
-		return f, form.File.Size, err
+
+	// Get maximum supported local media size.
+	maxsz := config.GetMediaLocalMaxSize()
+	maxszInt64 := int64(maxsz) // #nosec G115 -- Already validated.
+
+	// Ensure media within size bounds.
+	if form.File.Size > maxszInt64 {
+		text := fmt.Sprintf("media exceeds configured max size: %s", maxsz)
+		return nil, gtserror.NewErrorBadRequest(errors.New(text), text)
 	}
 
+	// Parse focus details from API form input.
 	focusX, focusY, err := parseFocus(form.Focus)
 	if err != nil {
-		err := fmt.Errorf("could not parse focus value %s: %s", form.Focus, err)
-		return nil, gtserror.NewErrorBadRequest(err, err.Error())
+		text := fmt.Sprintf("could not parse focus value %s: %s", form.Focus, err)
+		return nil, gtserror.NewErrorBadRequest(errors.New(text), text)
 	}
 
-	// process the media attachment and load it immediately
-	media := p.mediaManager.PreProcessMedia(data, account.ID, &media.AdditionalMediaInfo{
-		Description: &form.Description,
-		FocusX:      &focusX,
-		FocusY:      &focusY,
-	})
-
-	attachment, err := media.LoadAttachment(ctx)
+	// Open multipart file reader.
+	mpfile, err := form.File.Open()
 	if err != nil {
-		return nil, gtserror.NewErrorUnprocessableEntity(err, err.Error())
-	} else if attachment.Type == gtsmodel.FileTypeUnknown {
-		err = gtserror.Newf("could not process uploaded file with extension %s", attachment.File.ContentType)
-		return nil, gtserror.NewErrorUnprocessableEntity(err, err.Error())
+		err := gtserror.Newf("error opening multipart file: %w", err)
+		return nil, gtserror.NewErrorInternalError(err)
+	}
+
+	// Wrap the multipart file reader to ensure is limited to max.
+	rc, _, _ := iotools.UpdateReadCloserLimit(mpfile, maxszInt64)
+
+	// Create local media and write to instance storage.
+	attachment, errWithCode := p.c.StoreLocalMedia(ctx,
+		account.ID,
+		func(ctx context.Context) (reader io.ReadCloser, err error) {
+			return rc, nil
+		},
+		media.AdditionalMediaInfo{
+			Description: &form.Description,
+			FocusX:      &focusX,
+			FocusY:      &focusY,
+		},
+	)
+	if errWithCode != nil {
+		return nil, errWithCode
 	}
 
 	apiAttachment, err := p.converter.AttachmentToAPIAttachment(ctx, attachment)

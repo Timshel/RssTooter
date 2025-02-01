@@ -77,9 +77,14 @@ func (r *relationshipDB) GetMute(
 	)
 }
 
+func (r *relationshipDB) CountAccountMutes(ctx context.Context, accountID string) (int, error) {
+	muteIDs, err := r.getAccountMuteIDs(ctx, accountID, nil)
+	return len(muteIDs), err
+}
+
 func (r *relationshipDB) getMutesByIDs(ctx context.Context, ids []string) ([]*gtsmodel.UserMute, error) {
 	// Load all mutes IDs via cache loader callbacks.
-	mutes, err := r.state.Caches.GTS.UserMute.LoadIDs("ID",
+	mutes, err := r.state.Caches.DB.UserMute.LoadIDs("ID",
 		ids,
 		func(uncached []string) ([]*gtsmodel.UserMute, error) {
 			// Preallocate expected length of uncached mutes.
@@ -131,7 +136,7 @@ func (r *relationshipDB) getMute(
 	keyParts ...any,
 ) (*gtsmodel.UserMute, error) {
 	// Fetch mute from cache with loader callback
-	mute, err := r.state.Caches.GTS.UserMute.LoadOne(lookup, func() (*gtsmodel.UserMute, error) {
+	mute, err := r.state.Caches.DB.UserMute.LoadOne(lookup, func() (*gtsmodel.UserMute, error) {
 		var mute gtsmodel.UserMute
 
 		// Not cached! Perform database query
@@ -190,73 +195,71 @@ func (r *relationshipDB) populateMute(ctx context.Context, mute *gtsmodel.UserMu
 }
 
 func (r *relationshipDB) PutMute(ctx context.Context, mute *gtsmodel.UserMute) error {
-	return r.state.Caches.GTS.UserMute.Store(mute, func() error {
+	return r.state.Caches.DB.UserMute.Store(mute, func() error {
 		_, err := NewUpsert(r.db).Model(mute).Constraint("id").Exec(ctx)
 		return err
 	})
 }
 
 func (r *relationshipDB) DeleteMuteByID(ctx context.Context, id string) error {
-	// Load mute into cache before attempting a delete,
-	// as we need it cached in order to trigger the invalidate
-	// callback. This in turn invalidates others.
-	_, err := r.GetMuteByID(gtscontext.SetBarebones(ctx), id)
-	if err != nil {
-		if errors.Is(err, db.ErrNoEntries) {
-			// not an issue.
-			err = nil
-		}
+	// Gather necessary fields from
+	// deleted for cache invaliation.
+	var deleted gtsmodel.UserMute
+
+	// Delete mute with given ID,
+	// returning the deleted models.
+	if _, err := r.db.NewDelete().
+		Model(&deleted).
+		Where("? = ?", bun.Ident("id"), id).
+		Returning("?", bun.Ident("account_id")).
+		Exec(ctx); err != nil &&
+		!errors.Is(err, db.ErrNoEntries) {
 		return err
 	}
 
-	// Drop this now-cached mute on return after delete.
-	defer r.state.Caches.GTS.UserMute.Invalidate("ID", id)
+	// Invalidate cached mute with ID, manually
+	// call invalidate hook in case not cached.
+	r.state.Caches.DB.UserMute.Invalidate("ID", id)
+	r.state.Caches.OnInvalidateUserMute(&deleted)
 
-	// Finally delete mute from DB.
-	_, err = r.db.NewDelete().
-		Table("user_mutes").
-		Where("? = ?", bun.Ident("id"), id).
-		Exec(ctx)
-	return err
+	return nil
 }
 
 func (r *relationshipDB) DeleteAccountMutes(ctx context.Context, accountID string) error {
-	var muteIDs []string
+	// Gather necessary fields from
+	// deleted for cache invaliation.
+	var deleted []*gtsmodel.UserMute
 
-	// Get full list of IDs.
-	if err := r.db.NewSelect().
-		Column("id").
-		Table("user_mutes").
+	// Delete all mutes either from
+	// account, or targeting account,
+	// returning the deleted models.
+	if _, err := r.db.NewDelete().
+		Model(&deleted).
 		WhereOr("? = ? OR ? = ?",
 			bun.Ident("account_id"),
 			accountID,
 			bun.Ident("target_account_id"),
 			accountID,
 		).
-		Scan(ctx, &muteIDs); err != nil {
+		Returning("?",
+			bun.Ident("account_id"),
+		).
+		Exec(ctx); err != nil &&
+		!errors.Is(err, db.ErrNoEntries) {
 		return err
 	}
 
-	defer func() {
-		// Invalidate all account's incoming / outoing mutes on return.
-		r.state.Caches.GTS.UserMute.Invalidate("AccountID", accountID)
-		r.state.Caches.GTS.UserMute.Invalidate("TargetAccountID", accountID)
-	}()
+	// Invalidate all account's incoming / outoing user mutes.
+	r.state.Caches.DB.UserMute.Invalidate("AccountID", accountID)
+	r.state.Caches.DB.UserMute.Invalidate("TargetAccountID", accountID)
 
-	// Load all mutes into cache, this *really* isn't great
-	// but it is the only way we can ensure we invalidate all
-	// related caches correctly (e.g. visibility).
-	_, err := r.GetAccountMutes(ctx, accountID, nil)
-	if err != nil && !errors.Is(err, db.ErrNoEntries) {
-		return err
+	// In case not all user mutes were in
+	// cache, manually call invalidate hooks.
+	for _, block := range deleted {
+		r.state.Caches.OnInvalidateUserMute(block)
 	}
 
-	// Finally delete all from DB.
-	_, err = r.db.NewDelete().
-		Table("user_mutes").
-		Where("? IN (?)", bun.Ident("id"), bun.In(muteIDs)).
-		Exec(ctx)
-	return err
+	return nil
 }
 
 func (r *relationshipDB) GetAccountMutes(
@@ -272,7 +275,7 @@ func (r *relationshipDB) GetAccountMutes(
 }
 
 func (r *relationshipDB) getAccountMuteIDs(ctx context.Context, accountID string, page *paging.Page) ([]string, error) {
-	return loadPagedIDs(&r.state.Caches.GTS.UserMuteIDs, accountID, page, func() ([]string, error) {
+	return loadPagedIDs(&r.state.Caches.DB.UserMuteIDs, accountID, page, func() ([]string, error) {
 		var muteIDs []string
 
 		// Mute IDs not in cache. Perform DB query.

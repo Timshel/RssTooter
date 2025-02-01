@@ -68,6 +68,9 @@ type Relationship interface {
 	// GetFollow retrieves a follow if it exists between source and target accounts.
 	GetFollow(ctx context.Context, sourceAccountID string, targetAccountID string) (*gtsmodel.Follow, error)
 
+	// GetFollowsByIDs fetches all follows from database with given IDs.
+	GetFollowsByIDs(ctx context.Context, ids []string) ([]*gtsmodel.Follow, error)
+
 	// PopulateFollow populates the struct pointers on the given follow.
 	PopulateFollow(ctx context.Context, follow *gtsmodel.Follow) error
 
@@ -179,6 +182,9 @@ type Relationship interface {
 	// GetAccountBlockIDs is like GetAccountBlocks, but returns just IDs.
 	GetAccountBlockIDs(ctx context.Context, accountID string, page *paging.Page) ([]string, error)
 
+	// CountAccountBlocks counts the number of blocks owned by the given account.
+	CountAccountBlocks(ctx context.Context, accountID string) (int, error)
+
 	// GetNote gets a private note from a source account on a target account, if it exists.
 	GetNote(ctx context.Context, sourceAccountID string, targetAccountID string) (*gtsmodel.AccountNote, error)
 
@@ -196,6 +202,9 @@ type Relationship interface {
 
 	// GetMute returns the mute from account1 targeting account2, if it exists, or an error if it doesn't.
 	GetMute(ctx context.Context, account1 string, account2 string) (*gtsmodel.UserMute, error)
+
+	// CountAccountMutes counts the number of mutes owned by the given account.
+	CountAccountMutes(ctx context.Context, accountID string) (int, error)
 
 	// PutMute attempts to insert or update the given account mute in the database.
 	PutMute(ctx context.Context, mute *gtsmodel.UserMute) error

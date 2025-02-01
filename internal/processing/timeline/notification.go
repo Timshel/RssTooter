@@ -34,8 +34,26 @@ import (
 	"github.com/superseriousbusiness/gotosocial/internal/util"
 )
 
-func (p *Processor) NotificationsGet(ctx context.Context, authed *oauth.Auth, maxID string, sinceID string, minID string, limit int, excludeTypes []string) (*apimodel.PageableResponse, gtserror.WithCode) {
-	notifs, err := p.state.DB.GetAccountNotifications(ctx, authed.Account.ID, maxID, sinceID, minID, limit, excludeTypes)
+func (p *Processor) NotificationsGet(
+	ctx context.Context,
+	authed *oauth.Auth,
+	maxID string,
+	sinceID string,
+	minID string,
+	limit int,
+	types []string,
+	excludeTypes []string,
+) (*apimodel.PageableResponse, gtserror.WithCode) {
+	notifs, err := p.state.DB.GetAccountNotifications(
+		ctx,
+		authed.Account.ID,
+		maxID,
+		sinceID,
+		minID,
+		limit,
+		types,
+		excludeTypes,
+	)
 	if err != nil && !errors.Is(err, db.ErrNoEntries) {
 		err = fmt.Errorf("NotificationsGet: db error getting notifications: %w", err)
 		return nil, gtserror.NewErrorInternalError(err)
@@ -172,7 +190,7 @@ func (p *Processor) notifVisible(
 			return true, nil
 		}
 
-		visible, err := p.filter.AccountVisible(ctx, acct, n.OriginAccount)
+		visible, err := p.visFilter.AccountVisible(ctx, acct, n.OriginAccount)
 		if err != nil {
 			return false, err
 		}
@@ -185,7 +203,7 @@ func (p *Processor) notifVisible(
 	// If status is set, ensure it's
 	// visible to notif target.
 	if n.Status != nil {
-		visible, err := p.filter.StatusVisible(ctx, acct, n.Status)
+		visible, err := p.visFilter.StatusVisible(ctx, acct, n.Status)
 		if err != nil {
 			return false, err
 		}

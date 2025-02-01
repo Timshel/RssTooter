@@ -700,6 +700,31 @@ func GetDbSqliteBusyTimeout() time.Duration { return global.GetDbSqliteBusyTimeo
 // SetDbSqliteBusyTimeout safely sets the value for global configuration 'DbSqliteBusyTimeout' field
 func SetDbSqliteBusyTimeout(v time.Duration) { global.SetDbSqliteBusyTimeout(v) }
 
+// GetDbPostgresConnectionString safely fetches the Configuration value for state's 'DbPostgresConnectionString' field
+func (st *ConfigState) GetDbPostgresConnectionString() (v string) {
+	st.mutex.RLock()
+	v = st.config.DbPostgresConnectionString
+	st.mutex.RUnlock()
+	return
+}
+
+// SetDbPostgresConnectionString safely sets the Configuration value for state's 'DbPostgresConnectionString' field
+func (st *ConfigState) SetDbPostgresConnectionString(v string) {
+	st.mutex.Lock()
+	defer st.mutex.Unlock()
+	st.config.DbPostgresConnectionString = v
+	st.reloadToViper()
+}
+
+// DbPostgresConnectionStringFlag returns the flag name for the 'DbPostgresConnectionString' field
+func DbPostgresConnectionStringFlag() string { return "db-postgres-connection-string" }
+
+// GetDbPostgresConnectionString safely fetches the value for global configuration 'DbPostgresConnectionString' field
+func GetDbPostgresConnectionString() string { return global.GetDbPostgresConnectionString() }
+
+// SetDbPostgresConnectionString safely sets the value for global configuration 'DbPostgresConnectionString' field
+func SetDbPostgresConnectionString(v string) { global.SetDbPostgresConnectionString(v) }
+
 // GetWebTemplateBaseDir safely fetches the Configuration value for state's 'WebTemplateBaseDir' field
 func (st *ConfigState) GetWebTemplateBaseDir() (v string) {
 	st.mutex.RLock()
@@ -1075,56 +1100,6 @@ func GetAccountsCustomCSSLength() int { return global.GetAccountsCustomCSSLength
 // SetAccountsCustomCSSLength safely sets the value for global configuration 'AccountsCustomCSSLength' field
 func SetAccountsCustomCSSLength(v int) { global.SetAccountsCustomCSSLength(v) }
 
-// GetMediaImageMaxSize safely fetches the Configuration value for state's 'MediaImageMaxSize' field
-func (st *ConfigState) GetMediaImageMaxSize() (v bytesize.Size) {
-	st.mutex.RLock()
-	v = st.config.MediaImageMaxSize
-	st.mutex.RUnlock()
-	return
-}
-
-// SetMediaImageMaxSize safely sets the Configuration value for state's 'MediaImageMaxSize' field
-func (st *ConfigState) SetMediaImageMaxSize(v bytesize.Size) {
-	st.mutex.Lock()
-	defer st.mutex.Unlock()
-	st.config.MediaImageMaxSize = v
-	st.reloadToViper()
-}
-
-// MediaImageMaxSizeFlag returns the flag name for the 'MediaImageMaxSize' field
-func MediaImageMaxSizeFlag() string { return "media-image-max-size" }
-
-// GetMediaImageMaxSize safely fetches the value for global configuration 'MediaImageMaxSize' field
-func GetMediaImageMaxSize() bytesize.Size { return global.GetMediaImageMaxSize() }
-
-// SetMediaImageMaxSize safely sets the value for global configuration 'MediaImageMaxSize' field
-func SetMediaImageMaxSize(v bytesize.Size) { global.SetMediaImageMaxSize(v) }
-
-// GetMediaVideoMaxSize safely fetches the Configuration value for state's 'MediaVideoMaxSize' field
-func (st *ConfigState) GetMediaVideoMaxSize() (v bytesize.Size) {
-	st.mutex.RLock()
-	v = st.config.MediaVideoMaxSize
-	st.mutex.RUnlock()
-	return
-}
-
-// SetMediaVideoMaxSize safely sets the Configuration value for state's 'MediaVideoMaxSize' field
-func (st *ConfigState) SetMediaVideoMaxSize(v bytesize.Size) {
-	st.mutex.Lock()
-	defer st.mutex.Unlock()
-	st.config.MediaVideoMaxSize = v
-	st.reloadToViper()
-}
-
-// MediaVideoMaxSizeFlag returns the flag name for the 'MediaVideoMaxSize' field
-func MediaVideoMaxSizeFlag() string { return "media-video-max-size" }
-
-// GetMediaVideoMaxSize safely fetches the value for global configuration 'MediaVideoMaxSize' field
-func GetMediaVideoMaxSize() bytesize.Size { return global.GetMediaVideoMaxSize() }
-
-// SetMediaVideoMaxSize safely sets the value for global configuration 'MediaVideoMaxSize' field
-func SetMediaVideoMaxSize(v bytesize.Size) { global.SetMediaVideoMaxSize(v) }
-
 // GetMediaDescriptionMinChars safely fetches the Configuration value for state's 'MediaDescriptionMinChars' field
 func (st *ConfigState) GetMediaDescriptionMinChars() (v int) {
 	st.mutex.RLock()
@@ -1250,6 +1225,106 @@ func GetMediaEmojiRemoteMaxSize() bytesize.Size { return global.GetMediaEmojiRem
 // SetMediaEmojiRemoteMaxSize safely sets the value for global configuration 'MediaEmojiRemoteMaxSize' field
 func SetMediaEmojiRemoteMaxSize(v bytesize.Size) { global.SetMediaEmojiRemoteMaxSize(v) }
 
+// GetMediaImageSizeHint safely fetches the Configuration value for state's 'MediaImageSizeHint' field
+func (st *ConfigState) GetMediaImageSizeHint() (v bytesize.Size) {
+	st.mutex.RLock()
+	v = st.config.MediaImageSizeHint
+	st.mutex.RUnlock()
+	return
+}
+
+// SetMediaImageSizeHint safely sets the Configuration value for state's 'MediaImageSizeHint' field
+func (st *ConfigState) SetMediaImageSizeHint(v bytesize.Size) {
+	st.mutex.Lock()
+	defer st.mutex.Unlock()
+	st.config.MediaImageSizeHint = v
+	st.reloadToViper()
+}
+
+// MediaImageSizeHintFlag returns the flag name for the 'MediaImageSizeHint' field
+func MediaImageSizeHintFlag() string { return "media-image-size-hint" }
+
+// GetMediaImageSizeHint safely fetches the value for global configuration 'MediaImageSizeHint' field
+func GetMediaImageSizeHint() bytesize.Size { return global.GetMediaImageSizeHint() }
+
+// SetMediaImageSizeHint safely sets the value for global configuration 'MediaImageSizeHint' field
+func SetMediaImageSizeHint(v bytesize.Size) { global.SetMediaImageSizeHint(v) }
+
+// GetMediaVideoSizeHint safely fetches the Configuration value for state's 'MediaVideoSizeHint' field
+func (st *ConfigState) GetMediaVideoSizeHint() (v bytesize.Size) {
+	st.mutex.RLock()
+	v = st.config.MediaVideoSizeHint
+	st.mutex.RUnlock()
+	return
+}
+
+// SetMediaVideoSizeHint safely sets the Configuration value for state's 'MediaVideoSizeHint' field
+func (st *ConfigState) SetMediaVideoSizeHint(v bytesize.Size) {
+	st.mutex.Lock()
+	defer st.mutex.Unlock()
+	st.config.MediaVideoSizeHint = v
+	st.reloadToViper()
+}
+
+// MediaVideoSizeHintFlag returns the flag name for the 'MediaVideoSizeHint' field
+func MediaVideoSizeHintFlag() string { return "media-video-size-hint" }
+
+// GetMediaVideoSizeHint safely fetches the value for global configuration 'MediaVideoSizeHint' field
+func GetMediaVideoSizeHint() bytesize.Size { return global.GetMediaVideoSizeHint() }
+
+// SetMediaVideoSizeHint safely sets the value for global configuration 'MediaVideoSizeHint' field
+func SetMediaVideoSizeHint(v bytesize.Size) { global.SetMediaVideoSizeHint(v) }
+
+// GetMediaLocalMaxSize safely fetches the Configuration value for state's 'MediaLocalMaxSize' field
+func (st *ConfigState) GetMediaLocalMaxSize() (v bytesize.Size) {
+	st.mutex.RLock()
+	v = st.config.MediaLocalMaxSize
+	st.mutex.RUnlock()
+	return
+}
+
+// SetMediaLocalMaxSize safely sets the Configuration value for state's 'MediaLocalMaxSize' field
+func (st *ConfigState) SetMediaLocalMaxSize(v bytesize.Size) {
+	st.mutex.Lock()
+	defer st.mutex.Unlock()
+	st.config.MediaLocalMaxSize = v
+	st.reloadToViper()
+}
+
+// MediaLocalMaxSizeFlag returns the flag name for the 'MediaLocalMaxSize' field
+func MediaLocalMaxSizeFlag() string { return "media-local-max-size" }
+
+// GetMediaLocalMaxSize safely fetches the value for global configuration 'MediaLocalMaxSize' field
+func GetMediaLocalMaxSize() bytesize.Size { return global.GetMediaLocalMaxSize() }
+
+// SetMediaLocalMaxSize safely sets the value for global configuration 'MediaLocalMaxSize' field
+func SetMediaLocalMaxSize(v bytesize.Size) { global.SetMediaLocalMaxSize(v) }
+
+// GetMediaRemoteMaxSize safely fetches the Configuration value for state's 'MediaRemoteMaxSize' field
+func (st *ConfigState) GetMediaRemoteMaxSize() (v bytesize.Size) {
+	st.mutex.RLock()
+	v = st.config.MediaRemoteMaxSize
+	st.mutex.RUnlock()
+	return
+}
+
+// SetMediaRemoteMaxSize safely sets the Configuration value for state's 'MediaRemoteMaxSize' field
+func (st *ConfigState) SetMediaRemoteMaxSize(v bytesize.Size) {
+	st.mutex.Lock()
+	defer st.mutex.Unlock()
+	st.config.MediaRemoteMaxSize = v
+	st.reloadToViper()
+}
+
+// MediaRemoteMaxSizeFlag returns the flag name for the 'MediaRemoteMaxSize' field
+func MediaRemoteMaxSizeFlag() string { return "media-remote-max-size" }
+
+// GetMediaRemoteMaxSize safely fetches the value for global configuration 'MediaRemoteMaxSize' field
+func GetMediaRemoteMaxSize() bytesize.Size { return global.GetMediaRemoteMaxSize() }
+
+// SetMediaRemoteMaxSize safely sets the value for global configuration 'MediaRemoteMaxSize' field
+func SetMediaRemoteMaxSize(v bytesize.Size) { global.SetMediaRemoteMaxSize(v) }
+
 // GetMediaCleanupFrom safely fetches the Configuration value for state's 'MediaCleanupFrom' field
 func (st *ConfigState) GetMediaCleanupFrom() (v string) {
 	st.mutex.RLock()
@@ -1299,6 +1374,31 @@ func GetMediaCleanupEvery() time.Duration { return global.GetMediaCleanupEvery()
 
 // SetMediaCleanupEvery safely sets the value for global configuration 'MediaCleanupEvery' field
 func SetMediaCleanupEvery(v time.Duration) { global.SetMediaCleanupEvery(v) }
+
+// GetMediaFfmpegPoolSize safely fetches the Configuration value for state's 'MediaFfmpegPoolSize' field
+func (st *ConfigState) GetMediaFfmpegPoolSize() (v int) {
+	st.mutex.RLock()
+	v = st.config.MediaFfmpegPoolSize
+	st.mutex.RUnlock()
+	return
+}
+
+// SetMediaFfmpegPoolSize safely sets the Configuration value for state's 'MediaFfmpegPoolSize' field
+func (st *ConfigState) SetMediaFfmpegPoolSize(v int) {
+	st.mutex.Lock()
+	defer st.mutex.Unlock()
+	st.config.MediaFfmpegPoolSize = v
+	st.reloadToViper()
+}
+
+// MediaFfmpegPoolSizeFlag returns the flag name for the 'MediaFfmpegPoolSize' field
+func MediaFfmpegPoolSizeFlag() string { return "media-ffmpeg-pool-size" }
+
+// GetMediaFfmpegPoolSize safely fetches the value for global configuration 'MediaFfmpegPoolSize' field
+func GetMediaFfmpegPoolSize() int { return global.GetMediaFfmpegPoolSize() }
+
+// SetMediaFfmpegPoolSize safely sets the value for global configuration 'MediaFfmpegPoolSize' field
+func SetMediaFfmpegPoolSize(v int) { global.SetMediaFfmpegPoolSize(v) }
 
 // GetStorageBackend safely fetches the Configuration value for state's 'StorageBackend' field
 func (st *ConfigState) GetStorageBackend() (v string) {
@@ -1499,6 +1599,31 @@ func GetStorageS3Proxy() bool { return global.GetStorageS3Proxy() }
 
 // SetStorageS3Proxy safely sets the value for global configuration 'StorageS3Proxy' field
 func SetStorageS3Proxy(v bool) { global.SetStorageS3Proxy(v) }
+
+// GetStorageS3RedirectURL safely fetches the Configuration value for state's 'StorageS3RedirectURL' field
+func (st *ConfigState) GetStorageS3RedirectURL() (v string) {
+	st.mutex.RLock()
+	v = st.config.StorageS3RedirectURL
+	st.mutex.RUnlock()
+	return
+}
+
+// SetStorageS3RedirectURL safely sets the Configuration value for state's 'StorageS3RedirectURL' field
+func (st *ConfigState) SetStorageS3RedirectURL(v string) {
+	st.mutex.Lock()
+	defer st.mutex.Unlock()
+	st.config.StorageS3RedirectURL = v
+	st.reloadToViper()
+}
+
+// StorageS3RedirectURLFlag returns the flag name for the 'StorageS3RedirectURL' field
+func StorageS3RedirectURLFlag() string { return "storage-s3-redirect-url" }
+
+// GetStorageS3RedirectURL safely fetches the value for global configuration 'StorageS3RedirectURL' field
+func GetStorageS3RedirectURL() string { return global.GetStorageS3RedirectURL() }
+
+// SetStorageS3RedirectURL safely sets the value for global configuration 'StorageS3RedirectURL' field
+func SetStorageS3RedirectURL(v string) { global.SetStorageS3RedirectURL(v) }
 
 // GetStatusesMaxChars safely fetches the Configuration value for state's 'StatusesMaxChars' field
 func (st *ConfigState) GetStatusesMaxChars() (v int) {
@@ -2975,6 +3100,62 @@ func GetCacheClientMemRatio() float64 { return global.GetCacheClientMemRatio() }
 // SetCacheClientMemRatio safely sets the value for global configuration 'Cache.ClientMemRatio' field
 func SetCacheClientMemRatio(v float64) { global.SetCacheClientMemRatio(v) }
 
+// GetCacheConversationMemRatio safely fetches the Configuration value for state's 'Cache.ConversationMemRatio' field
+func (st *ConfigState) GetCacheConversationMemRatio() (v float64) {
+	st.mutex.RLock()
+	v = st.config.Cache.ConversationMemRatio
+	st.mutex.RUnlock()
+	return
+}
+
+// SetCacheConversationMemRatio safely sets the Configuration value for state's 'Cache.ConversationMemRatio' field
+func (st *ConfigState) SetCacheConversationMemRatio(v float64) {
+	st.mutex.Lock()
+	defer st.mutex.Unlock()
+	st.config.Cache.ConversationMemRatio = v
+	st.reloadToViper()
+}
+
+// CacheConversationMemRatioFlag returns the flag name for the 'Cache.ConversationMemRatio' field
+func CacheConversationMemRatioFlag() string { return "cache-conversation-mem-ratio" }
+
+// GetCacheConversationMemRatio safely fetches the value for global configuration 'Cache.ConversationMemRatio' field
+func GetCacheConversationMemRatio() float64 { return global.GetCacheConversationMemRatio() }
+
+// SetCacheConversationMemRatio safely sets the value for global configuration 'Cache.ConversationMemRatio' field
+func SetCacheConversationMemRatio(v float64) { global.SetCacheConversationMemRatio(v) }
+
+// GetCacheConversationLastStatusIDsMemRatio safely fetches the Configuration value for state's 'Cache.ConversationLastStatusIDsMemRatio' field
+func (st *ConfigState) GetCacheConversationLastStatusIDsMemRatio() (v float64) {
+	st.mutex.RLock()
+	v = st.config.Cache.ConversationLastStatusIDsMemRatio
+	st.mutex.RUnlock()
+	return
+}
+
+// SetCacheConversationLastStatusIDsMemRatio safely sets the Configuration value for state's 'Cache.ConversationLastStatusIDsMemRatio' field
+func (st *ConfigState) SetCacheConversationLastStatusIDsMemRatio(v float64) {
+	st.mutex.Lock()
+	defer st.mutex.Unlock()
+	st.config.Cache.ConversationLastStatusIDsMemRatio = v
+	st.reloadToViper()
+}
+
+// CacheConversationLastStatusIDsMemRatioFlag returns the flag name for the 'Cache.ConversationLastStatusIDsMemRatio' field
+func CacheConversationLastStatusIDsMemRatioFlag() string {
+	return "cache-conversation-last-status-ids-mem-ratio"
+}
+
+// GetCacheConversationLastStatusIDsMemRatio safely fetches the value for global configuration 'Cache.ConversationLastStatusIDsMemRatio' field
+func GetCacheConversationLastStatusIDsMemRatio() float64 {
+	return global.GetCacheConversationLastStatusIDsMemRatio()
+}
+
+// SetCacheConversationLastStatusIDsMemRatio safely sets the value for global configuration 'Cache.ConversationLastStatusIDsMemRatio' field
+func SetCacheConversationLastStatusIDsMemRatio(v float64) {
+	global.SetCacheConversationLastStatusIDsMemRatio(v)
+}
+
 // GetCacheEmojiMemRatio safely fetches the Configuration value for state's 'Cache.EmojiMemRatio' field
 func (st *ConfigState) GetCacheEmojiMemRatio() (v float64) {
 	st.mutex.RLock()
@@ -3200,6 +3381,31 @@ func GetCacheFollowRequestIDsMemRatio() float64 { return global.GetCacheFollowRe
 // SetCacheFollowRequestIDsMemRatio safely sets the value for global configuration 'Cache.FollowRequestIDsMemRatio' field
 func SetCacheFollowRequestIDsMemRatio(v float64) { global.SetCacheFollowRequestIDsMemRatio(v) }
 
+// GetCacheFollowingTagIDsMemRatio safely fetches the Configuration value for state's 'Cache.FollowingTagIDsMemRatio' field
+func (st *ConfigState) GetCacheFollowingTagIDsMemRatio() (v float64) {
+	st.mutex.RLock()
+	v = st.config.Cache.FollowingTagIDsMemRatio
+	st.mutex.RUnlock()
+	return
+}
+
+// SetCacheFollowingTagIDsMemRatio safely sets the Configuration value for state's 'Cache.FollowingTagIDsMemRatio' field
+func (st *ConfigState) SetCacheFollowingTagIDsMemRatio(v float64) {
+	st.mutex.Lock()
+	defer st.mutex.Unlock()
+	st.config.Cache.FollowingTagIDsMemRatio = v
+	st.reloadToViper()
+}
+
+// CacheFollowingTagIDsMemRatioFlag returns the flag name for the 'Cache.FollowingTagIDsMemRatio' field
+func CacheFollowingTagIDsMemRatioFlag() string { return "cache-following-tag-ids-mem-ratio" }
+
+// GetCacheFollowingTagIDsMemRatio safely fetches the value for global configuration 'Cache.FollowingTagIDsMemRatio' field
+func GetCacheFollowingTagIDsMemRatio() float64 { return global.GetCacheFollowingTagIDsMemRatio() }
+
+// SetCacheFollowingTagIDsMemRatio safely sets the value for global configuration 'Cache.FollowingTagIDsMemRatio' field
+func SetCacheFollowingTagIDsMemRatio(v float64) { global.SetCacheFollowingTagIDsMemRatio(v) }
+
 // GetCacheInReplyToIDsMemRatio safely fetches the Configuration value for state's 'Cache.InReplyToIDsMemRatio' field
 func (st *ConfigState) GetCacheInReplyToIDsMemRatio() (v float64) {
 	st.mutex.RLock()
@@ -3250,6 +3456,31 @@ func GetCacheInstanceMemRatio() float64 { return global.GetCacheInstanceMemRatio
 // SetCacheInstanceMemRatio safely sets the value for global configuration 'Cache.InstanceMemRatio' field
 func SetCacheInstanceMemRatio(v float64) { global.SetCacheInstanceMemRatio(v) }
 
+// GetCacheInteractionRequestMemRatio safely fetches the Configuration value for state's 'Cache.InteractionRequestMemRatio' field
+func (st *ConfigState) GetCacheInteractionRequestMemRatio() (v float64) {
+	st.mutex.RLock()
+	v = st.config.Cache.InteractionRequestMemRatio
+	st.mutex.RUnlock()
+	return
+}
+
+// SetCacheInteractionRequestMemRatio safely sets the Configuration value for state's 'Cache.InteractionRequestMemRatio' field
+func (st *ConfigState) SetCacheInteractionRequestMemRatio(v float64) {
+	st.mutex.Lock()
+	defer st.mutex.Unlock()
+	st.config.Cache.InteractionRequestMemRatio = v
+	st.reloadToViper()
+}
+
+// CacheInteractionRequestMemRatioFlag returns the flag name for the 'Cache.InteractionRequestMemRatio' field
+func CacheInteractionRequestMemRatioFlag() string { return "cache-interaction-request-mem-ratio" }
+
+// GetCacheInteractionRequestMemRatio safely fetches the value for global configuration 'Cache.InteractionRequestMemRatio' field
+func GetCacheInteractionRequestMemRatio() float64 { return global.GetCacheInteractionRequestMemRatio() }
+
+// SetCacheInteractionRequestMemRatio safely sets the value for global configuration 'Cache.InteractionRequestMemRatio' field
+func SetCacheInteractionRequestMemRatio(v float64) { global.SetCacheInteractionRequestMemRatio(v) }
+
 // GetCacheListMemRatio safely fetches the Configuration value for state's 'Cache.ListMemRatio' field
 func (st *ConfigState) GetCacheListMemRatio() (v float64) {
 	st.mutex.RLock()
@@ -3275,30 +3506,55 @@ func GetCacheListMemRatio() float64 { return global.GetCacheListMemRatio() }
 // SetCacheListMemRatio safely sets the value for global configuration 'Cache.ListMemRatio' field
 func SetCacheListMemRatio(v float64) { global.SetCacheListMemRatio(v) }
 
-// GetCacheListEntryMemRatio safely fetches the Configuration value for state's 'Cache.ListEntryMemRatio' field
-func (st *ConfigState) GetCacheListEntryMemRatio() (v float64) {
+// GetCacheListIDsMemRatio safely fetches the Configuration value for state's 'Cache.ListIDsMemRatio' field
+func (st *ConfigState) GetCacheListIDsMemRatio() (v float64) {
 	st.mutex.RLock()
-	v = st.config.Cache.ListEntryMemRatio
+	v = st.config.Cache.ListIDsMemRatio
 	st.mutex.RUnlock()
 	return
 }
 
-// SetCacheListEntryMemRatio safely sets the Configuration value for state's 'Cache.ListEntryMemRatio' field
-func (st *ConfigState) SetCacheListEntryMemRatio(v float64) {
+// SetCacheListIDsMemRatio safely sets the Configuration value for state's 'Cache.ListIDsMemRatio' field
+func (st *ConfigState) SetCacheListIDsMemRatio(v float64) {
 	st.mutex.Lock()
 	defer st.mutex.Unlock()
-	st.config.Cache.ListEntryMemRatio = v
+	st.config.Cache.ListIDsMemRatio = v
 	st.reloadToViper()
 }
 
-// CacheListEntryMemRatioFlag returns the flag name for the 'Cache.ListEntryMemRatio' field
-func CacheListEntryMemRatioFlag() string { return "cache-list-entry-mem-ratio" }
+// CacheListIDsMemRatioFlag returns the flag name for the 'Cache.ListIDsMemRatio' field
+func CacheListIDsMemRatioFlag() string { return "cache-list-ids-mem-ratio" }
 
-// GetCacheListEntryMemRatio safely fetches the value for global configuration 'Cache.ListEntryMemRatio' field
-func GetCacheListEntryMemRatio() float64 { return global.GetCacheListEntryMemRatio() }
+// GetCacheListIDsMemRatio safely fetches the value for global configuration 'Cache.ListIDsMemRatio' field
+func GetCacheListIDsMemRatio() float64 { return global.GetCacheListIDsMemRatio() }
 
-// SetCacheListEntryMemRatio safely sets the value for global configuration 'Cache.ListEntryMemRatio' field
-func SetCacheListEntryMemRatio(v float64) { global.SetCacheListEntryMemRatio(v) }
+// SetCacheListIDsMemRatio safely sets the value for global configuration 'Cache.ListIDsMemRatio' field
+func SetCacheListIDsMemRatio(v float64) { global.SetCacheListIDsMemRatio(v) }
+
+// GetCacheListedIDsMemRatio safely fetches the Configuration value for state's 'Cache.ListedIDsMemRatio' field
+func (st *ConfigState) GetCacheListedIDsMemRatio() (v float64) {
+	st.mutex.RLock()
+	v = st.config.Cache.ListedIDsMemRatio
+	st.mutex.RUnlock()
+	return
+}
+
+// SetCacheListedIDsMemRatio safely sets the Configuration value for state's 'Cache.ListedIDsMemRatio' field
+func (st *ConfigState) SetCacheListedIDsMemRatio(v float64) {
+	st.mutex.Lock()
+	defer st.mutex.Unlock()
+	st.config.Cache.ListedIDsMemRatio = v
+	st.reloadToViper()
+}
+
+// CacheListedIDsMemRatioFlag returns the flag name for the 'Cache.ListedIDsMemRatio' field
+func CacheListedIDsMemRatioFlag() string { return "cache-listed-ids-mem-ratio" }
+
+// GetCacheListedIDsMemRatio safely fetches the value for global configuration 'Cache.ListedIDsMemRatio' field
+func GetCacheListedIDsMemRatio() float64 { return global.GetCacheListedIDsMemRatio() }
+
+// SetCacheListedIDsMemRatio safely sets the value for global configuration 'Cache.ListedIDsMemRatio' field
+func SetCacheListedIDsMemRatio(v float64) { global.SetCacheListedIDsMemRatio(v) }
 
 // GetCacheMarkerMemRatio safely fetches the Configuration value for state's 'Cache.MarkerMemRatio' field
 func (st *ConfigState) GetCacheMarkerMemRatio() (v float64) {
@@ -3524,6 +3780,31 @@ func GetCacheReportMemRatio() float64 { return global.GetCacheReportMemRatio() }
 
 // SetCacheReportMemRatio safely sets the value for global configuration 'Cache.ReportMemRatio' field
 func SetCacheReportMemRatio(v float64) { global.SetCacheReportMemRatio(v) }
+
+// GetCacheSinBinStatusMemRatio safely fetches the Configuration value for state's 'Cache.SinBinStatusMemRatio' field
+func (st *ConfigState) GetCacheSinBinStatusMemRatio() (v float64) {
+	st.mutex.RLock()
+	v = st.config.Cache.SinBinStatusMemRatio
+	st.mutex.RUnlock()
+	return
+}
+
+// SetCacheSinBinStatusMemRatio safely sets the Configuration value for state's 'Cache.SinBinStatusMemRatio' field
+func (st *ConfigState) SetCacheSinBinStatusMemRatio(v float64) {
+	st.mutex.Lock()
+	defer st.mutex.Unlock()
+	st.config.Cache.SinBinStatusMemRatio = v
+	st.reloadToViper()
+}
+
+// CacheSinBinStatusMemRatioFlag returns the flag name for the 'Cache.SinBinStatusMemRatio' field
+func CacheSinBinStatusMemRatioFlag() string { return "cache-sin-bin-status-mem-ratio" }
+
+// GetCacheSinBinStatusMemRatio safely fetches the value for global configuration 'Cache.SinBinStatusMemRatio' field
+func GetCacheSinBinStatusMemRatio() float64 { return global.GetCacheSinBinStatusMemRatio() }
+
+// SetCacheSinBinStatusMemRatio safely sets the value for global configuration 'Cache.SinBinStatusMemRatio' field
+func SetCacheSinBinStatusMemRatio(v float64) { global.SetCacheSinBinStatusMemRatio(v) }
 
 // GetCacheStatusMemRatio safely fetches the Configuration value for state's 'Cache.StatusMemRatio' field
 func (st *ConfigState) GetCacheStatusMemRatio() (v float64) {

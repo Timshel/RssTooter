@@ -8,7 +8,6 @@ import (
    "time"
 
    "github.com/superseriousbusiness/gotosocial/internal/ap"
-   "github.com/superseriousbusiness/gotosocial/internal/gtserror"
    "github.com/superseriousbusiness/gotosocial/internal/gtsmodel"
    "github.com/superseriousbusiness/gotosocial/internal/id"
    "github.com/superseriousbusiness/gotosocial/internal/uris"
@@ -19,12 +18,6 @@ func (n *rssTooter) NewUser(ctx context.Context, resource string) (string, error
    alreadyExistName, rssFeed, err := NewRssFeed(n.state, ctx, resource)
 
    if len(alreadyExistName) == 0 && err == nil {
-      // Pre-fetch a transport for requesting username, used by later dereferencing.
-      tsport, err := n.transportController.NewTransportForUsername(ctx, "")
-      if err != nil {
-         return "", gtserror.Newf("couldn't create transport: %w", err)
-      }
-
       key, err := rsa.GenerateKey(rand.Reader, rsaKeyBits)
       if err != nil {
          return "", fmt.Errorf("Error geenrating account keys: (%s)", err)
@@ -62,9 +55,9 @@ func (n *rssTooter) NewUser(ctx context.Context, resource string) (string, error
          Settings:              settings,
       }
 
-      err = n.dereferencer.FetchRemoteAccountAvatar(ctx, tsport, acct, acct)
-      if err != nil {
-         return "", fmt.Errorf("Error fetching account (%s) media: %s", rssFeed.DbUsername, err)
+      // insert the new account!
+      if err := n.state.DB.PutAccount(ctx, acct); err != nil {
+         return "", err
       }
 
       // Insert the settings!
@@ -72,9 +65,9 @@ func (n *rssTooter) NewUser(ctx context.Context, resource string) (string, error
          return "", err
       }
 
-      // insert the new account!
-      if err := n.state.DB.PutAccount(ctx, acct); err != nil {
-         return "", err
+      err = n.dereferencer.FetchAccountAvatar(ctx, acct.Username, acct, acct)
+      if err != nil {
+         return "", fmt.Errorf("Error fetching account (%s) media: %s", rssFeed.DbUsername, err)
       }
 
       pw, err := bcrypt.GenerateFromPassword([]byte(n.userPassword), bcrypt.DefaultCost)

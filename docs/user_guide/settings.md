@@ -8,7 +8,7 @@ You will be prompted to log in with your email address and password after provid
 
 ## Profile
 
-![Screenshot of the profile section of the user settings interface, showing a preview of the avatar, header and display name, and providing form fields to change them](../assets/user-settings-profile-info.png)
+![Screenshot of the profile section of the user settings interface, showing a preview of the avatar, header and display name, and providing form fields to change them](../public/user-settings-profile-info.png)
 
 In the profile section you can change your display name, avatar and header images. You can also choose to enable manually approving follow requests, and opt-in to providing a public RSS feed of your posts.
 
@@ -76,6 +76,28 @@ Some examples:
 
 ### Visibility and Privacy
 
+#### Visibility Level of Posts to Show on Your Profile
+
+Using this dropdown, you can choose what visibility level(s) of posts should be shown on the public web views of your profile, of your statuses, and in your RSS feed (if you have enabled RSS).
+
+**By default, GoToSocial shows only Public visibility posts on its web views, not Unlisted.** You can adjust this setting to also show Unlisted visibility posts, which is similar to the default for other ActivityPub softwares like Mastodon etc.
+
+You can also choose to show no posts at all on GoToSocial's web views. This allows you to write posts without having to worry about scrapers, rubberneckers, and other nosy parkers visiting your web profile and looking at your posts.
+
+This setting only applies to the visibility of your own posts. Other user's Unlisted posts are never shown.
+
+This setting does not affect visibility of your posts over the ActivityPub protocol, so even if you choose to show no posts on your public web profile, others will be able to see your posts in their client if they follow you, and/or have your posts boosted onto their timeline, use a link to search a post of yours, etc.
+
+!!! warning
+    Be aware that changes to this setting also apply retroactively.
+    
+    That is, if you previously made a post on Unlisted visibility, while set to show only Public posts on your profile, and you change this setting to show Public and Unlisted, then the Unlisted post you previously made will be visible on your profile alongside your Public posts.
+    
+    Likewise, if you change this setting to show no posts, then all your posts will be hidden from your profile, regardless of when you created them, and what this option was set to at the time. This will apply until you change this setting again.
+
+!!! tip
+    Alongside (domain-)blocking, this is a good "emergency" setting to use if you're facing harassment from people trawling through your public posts. It won't hide your posts from people who can see them in their clients, via ActivityPub, but it will at least prevent them from being able to click through your posts in their browser with no authentication, and easily share them with others with a URL.
+
 #### Manually Approve Follow Requests (aka Lock Your Account)
 
 This checkbox allows you to decide whether or not you want to manually review follow requests to your account.
@@ -133,11 +155,7 @@ See the [Custom CSS](./custom_css.md) page for some tips on writing custom CSS f
 !!! tip
     Any custom CSS you add in this box will be applied *after* your selected theme, so you can pick a preset theme that you like and then make your own tweaks!
 
-## Settings
-
-![Screenshot of the settings section](../assets/user-settings-settings.png)
-
-In the 'Settings' section, you can set various defaults for new posts, and change your password / email address.
+## Posts
 
 ### Post Settings
 
@@ -151,16 +169,39 @@ The plain (default) setting provides standard post formatting, similar to what m
 
 The markdown setting indicates that your posts should be parsed as Markdown, which is a markup language that gives you more options for customizing the layout and appearance of your posts. For more information on the differences between plain and markdown post formats, see the [posts page](posts.md).
 
-When you are finished updating your post settings, remember to click the `Save post settings` button at the bottom of the section to save your changes.
+When you are finished updating your post settings, remember to click the `Save settings` button at the bottom of the section to save your changes.
 
-### Password Change
+### Default Interaction Policies
 
-You can use the Password Change section of the panel to set a new password for your account. For security reasons, you must provide your current password to validate the change.
+Using this section, you can set your default interaction policies for new posts per visibility level. This allows you to fine-tune how others are allowed to interact with your posts.
 
-!!! info
-    If your instance is using OIDC as its authorization/identity provider, you will not be able to change your password via the GoToSocial settings panel, and you should contact your OIDC provider instead.
+This allows you to do things like:
 
-For more information on the way GoToSocial manages passwords, please see the [Password management document](./password_management.md).
+- Create posts that nobody can interact with except you.
+- Create posts that only your followers / people you follow can interact with.
+- Create posts that anyone can like or boost, but only certain people can reply to.
+- Etc.
+
+For example, the below image shows a policy for Public visibility posts that allows anyone to like or boost, but only allows followers, and people you follow, to reply.
+
+![Policy showing "Who can like" = "anyone", "Who can reply" = "followers" and "following", and "Who can boost" = "anyone".](../public/user-settings-interaction-policy-1.png)
+
+Bear in mind that policies do not apply retroactively. Posts created after you've applied a default interaction policy will use that policy, but any post created before then will use whatever policy was the default when the post was created.
+
+No matter what policy you set on a post, visibility settings and blocks will still be taken into account *before* any policies apply. For example, if you set "anyone" for a type of interaction, that will still exclude accounts you have blocked, or accounts on domains that are blocked by your instance. "Anyone", in this case, essentially means "anyone who could normally see the post".
+
+Finally, note that no matter what policy you set on a post, any accounts you mention in a post will **always** be able to reply to that post.
+
+When you are finished updating your interaction policy settings, remember to click the `Save policies` button at the bottom of the section to save your changes.
+
+If you want to reset all your policies to the initial defaults, you can click on `Reset to defaults` button.
+
+!!! danger
+    While GoToSocial respects interaction policies, it is not guaranteed that other server softwares will, and it is possible that accounts on other servers will still send out replies and boosts of your post to their followers, even if your instance forbids these interactions.
+    
+    As more ActivityPub servers roll out support for interaction policies, this issue will hopefully diminish, but in the meantime GoToSocial can offer only a "best effort" attempt to restrict interactions with your posts according to the policies you have set.
+
+## Email & Password
 
 ### Email Change
 
@@ -171,49 +212,57 @@ Once a new email address has been entered, and you have clicked "Change email ad
 !!! info
     If your instance is using OIDC as its authorization/identity provider, you will be able to change your email address via the settings panel, but it will only affect the email address GoToSocial uses to contact you, it will not change the email address you need to use to log in to your account. To change that, you should contact your OIDC provider.
 
+### Password Change
+
+You can use the Password Change section of the panel to set a new password for your account. For security reasons, you must provide your current password to validate the change.
+
+!!! info
+    If your instance is using OIDC as its authorization/identity provider, you will not be able to change your password via the GoToSocial settings panel, and you should contact your OIDC provider instead.
+
+For more information on the way GoToSocial manages passwords, please see the [Password management document](./password_management.md).
+
 ## Migration
 
-In the migration section you can manage settings related to aliasing and/or migrating your account to another account.
+In the migration section you can manage settings related to aliasing and/or migrating your account to or from another account.
 
-!!! tip
-    Depending on the software that a target account is hosted on, target account URIs for both aliasing and moves should look something like `https://mastodon.example.org/users/account_you_are_moving_to`. If you are unsure what format to use, check with the admin of the instance you are moving or aliasing to.
+Please see the [migration document](./migration.md) for more information on moving your account.
 
-### Alias Account
+## Export & Import
 
-You can use this section to create an alias from your GoToSocial account to other accounts elsewhere, indicating that you are also known as those accounts.
+In the export & import section, you can export data from your GoToSocial account, or import data into it.
 
-**Not implemented yet**: Alias information for accounts you enter here will be shown on the web view of your profile, but only if the target accounts are also aliased back to your account first. This is to prevent accounts from claiming to be aliased to other accounts that they don't actually control.
+![The export/import page.](../public/user-settings-export-import.png)
 
-### Move Account
+### Export
 
-Using the move account settings, you can trigger the migration of your current account to the given target account URI.
+To export your following, followers, lists, account blocks, or account mutes, you can use the button on this page.
 
-In order for the move to be successful, the target account (the account you are moving to) must be aliased back to your current account (the account you are moving from). The target account must also be reachable from your current account, ie., not blocked by you, not suspended by your current instance, and not on a domain that is blocked by your current instance. The target account does not have to be on a GoToSocial instance.
+All exports will be served in Mastodon-compatible CSV format, so you can import them later into Mastodon or another GoToSocial instance, if you like.
 
-GoToSocial uses an account move cooldown of 7 days. If either your current account or the target account have recently been involved in a move, you will not be able to trigger a move to the target account until seven days have passed.
+### Import
 
-Moving your account will send a message out from your current account, to your current followers, indicating that they should follow the target account instead. Depending on the server software used by your followers, they may then automatically send a follow (request) to the target account, and unfollow your current account.
+You can use the import section to import data from another account into your GoToSocial account, using CSV files exported from the other account.
 
-Currently, **only your followers will be carried over to the new account**. Other things like your following list, statuses, media, bookmarks, faves, blocks, etc, will not be carried over.
+This is useful in cases where you've [migrated your account](./migration.md) to a GoToSocial account, and you want to keep your list of accounts that you followed, blocked, etc., on your previous account.
 
-Once your account has moved, the web view of your current (now old) account will show a notice that you have moved, and to where.
+To import data into your account, first click on "Browse" and select a Mastodon-compatible CSV file [exported from Mastodon](https://docs.joinmastodon.org/user/moving/#export) or another compatible instance.
 
-Your old statuses and media will still be visible on the web view of the account you've moved from, unless you delete them manually. If you prefer, you can ask the admin of the instance you've moved from to suspend/delete your account after the move has gone through.
+Then, use the drop-down selector to pick what kind of data you are uploading via the CSV file.
 
-If necessary, you can retry an account move using the same target account URI. This will send the move message out again.
+!!! warning
+    Be careful when selecting "type" or you may end up accidentally blocking a bunch of accounts you meant to follow, or vice versa!
 
-!!! danger "Moving your account is an irreversible, permanent action!"
-    
-    From the moment you trigger an account move, you will have only basic read- and delete-level permissions on the account you've moved from.
-    
-    You will still be able to log in to your old account and see your own posts, faves, bookmarks, blocks, and lists.
-    
-    You will also be able to edit your profile, delete and/or unpin your own posts, and unboost, unfave, and unbookmark posts.
-    
-    However, you will not be able to take any action that involves creating something, such as writing, boosting, bookmarking, or faving a post, following someone, uploading media, creating a list, etc.
-    
-    Additionally, you will not be able to view any timelines (home, tag, public, list), or use the search functionality.
+Then choose whether you want to either **merge** the new data with the existing data of that type on your GoToSocial account, or whether you want to **overwrite** existing data of that type with the data contained in the CSV file.
 
-## Admins
+If you choose **merge**, then any data contained in the CSV file will be added to existing data without removing any of that existing data.
 
-If your account has been promoted to admin, this interface will also show sections related to admin actions, see [Admin Settings](../admin/settings.md).
+For example, if you follow `account1`, and `account2` from your GoToSocial account, and you're uploading a CSV file containing follows of `account3`, and `account4`, and using mode **merge**, then at the end of the import you will be following `account1`, `account2`, `account3`, and `account4`.
+
+If you choose **overwrite**, then any data contained in the CSV file will *replace* the existing data, by removing entries not contained in the CSV file.
+
+For example, if you follow `account1`, and `account2` from your GoToSocial account, and you're uploading a CSV file containing follows of `account3`, and `account4`, and using mode **overwrite**, then at the end of the import you will be following `account3`, and `account4`. Your follows of `account1` and `account2` will be removed.
+
+Both merge and overwrite operations are idempotent, which basically means that duplicate entries in the existing data and in the CSV file are not an issue, and you can do imports of the same data multiple times if you need to retry importing for whatever reason.
+
+!!! info
+    For a variety of reasons, it will not always be possible to recreate every entry in an uploaded CSV file via importing. For example, say you are trying to import a CSV of follows containing `example_account`, but `example_account`'s instance has gone offline, or their instance blocks yours, or your instance blocks theirs, etc. In this case, the follow of `example_account` would not be created.

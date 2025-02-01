@@ -19,7 +19,7 @@ package fileserver_test
 
 import (
 	"context"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -28,6 +28,7 @@ import (
 	"github.com/superseriousbusiness/gotosocial/internal/api/fileserver"
 	"github.com/superseriousbusiness/gotosocial/internal/gtsmodel"
 	"github.com/superseriousbusiness/gotosocial/internal/media"
+	"github.com/superseriousbusiness/gotosocial/internal/middleware"
 	"github.com/superseriousbusiness/gotosocial/testrig"
 )
 
@@ -54,12 +55,15 @@ func (suite *ServeFileTestSuite) GetFile(
 	ctx.AddParam(fileserver.MediaSizeKey, string(mediaSize))
 	ctx.AddParam(fileserver.FileNameKey, filename)
 
+	logger := middleware.Logger(false)
 	suite.fileServer.ServeFile(ctx)
+	logger(ctx)
+
 	code = recorder.Code
 	headers = recorder.Result().Header
 
 	var err error
-	body, err = ioutil.ReadAll(recorder.Body)
+	body, err = io.ReadAll(recorder.Body)
 	if err != nil {
 		suite.FailNow(err.Error())
 	}
@@ -118,11 +122,11 @@ func (suite *ServeFileTestSuite) TestServeSmallLocalFileOK() {
 		targetAttachment.AccountID,
 		media.TypeAttachment,
 		media.SizeSmall,
-		targetAttachment.ID+".jpg",
+		targetAttachment.ID+".webp",
 	)
 
 	suite.Equal(http.StatusOK, code)
-	suite.Equal("image/jpeg", headers.Get("content-type"))
+	suite.Equal("image/webp", headers.Get("content-type"))
 	suite.Equal(fileInStorage, body)
 }
 
@@ -158,7 +162,7 @@ func (suite *ServeFileTestSuite) TestServeSmallRemoteFileOK() {
 		targetAttachment.AccountID,
 		media.TypeAttachment,
 		media.SizeSmall,
-		targetAttachment.ID+".jpg",
+		targetAttachment.ID+".webp",
 	)
 
 	suite.Equal(http.StatusOK, code)
@@ -204,7 +208,7 @@ func (suite *ServeFileTestSuite) TestServeSmallRemoteFileRecache() {
 		targetAttachment.AccountID,
 		media.TypeAttachment,
 		media.SizeSmall,
-		targetAttachment.ID+".jpg",
+		targetAttachment.ID+".webp",
 	)
 
 	suite.Equal(http.StatusOK, code)
@@ -248,7 +252,7 @@ func (suite *ServeFileTestSuite) TestServeSmallRemoteFileRecacheNotFound() {
 		targetAttachment.AccountID,
 		media.TypeAttachment,
 		media.SizeSmall,
-		targetAttachment.ID+".jpg",
+		targetAttachment.ID+".webp",
 	)
 
 	suite.Equal(http.StatusNotFound, code)

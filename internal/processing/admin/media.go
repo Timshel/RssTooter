@@ -21,6 +21,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/superseriousbusiness/gotosocial/internal/gtscontext"
 	"github.com/superseriousbusiness/gotosocial/internal/gtserror"
 	"github.com/superseriousbusiness/gotosocial/internal/gtsmodel"
 	"github.com/superseriousbusiness/gotosocial/internal/log"
@@ -28,15 +29,16 @@ import (
 
 // MediaRefetch forces a refetch of remote emojis.
 func (p *Processor) MediaRefetch(ctx context.Context, requestingAccount *gtsmodel.Account, domain string) gtserror.WithCode {
-	transport, err := p.transportController.NewTransportForUsername(ctx, requestingAccount.Username)
+	transport, err := p.transport.NewTransportForUsername(ctx, requestingAccount.Username)
 	if err != nil {
 		err = fmt.Errorf("error getting transport for user %s during media refetch request: %w", requestingAccount.Username, err)
 		return gtserror.NewErrorInternalError(err)
 	}
 
 	go func() {
+		ctx := gtscontext.WithValues(context.Background(), ctx)
 		log.Info(ctx, "starting emoji refetch")
-		refetched, err := p.mediaManager.RefetchEmojis(context.Background(), domain, transport.DereferenceMedia)
+		refetched, err := p.media.RefetchEmojis(ctx, domain, transport.DereferenceMedia)
 		if err != nil {
 			log.Errorf(ctx, "error refetching emojis: %s", err)
 		} else {

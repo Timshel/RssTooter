@@ -38,7 +38,7 @@ type EmojiCreateTestSuite struct {
 func (suite *EmojiCreateTestSuite) TestEmojiCreateNewCategory() {
 	// set up the request
 	requestBody, w, err := testrig.CreateMultipartFormData(
-		"image", "../../../../testrig/media/rainbow-original.png",
+		testrig.FileToDataF("image", "../../../../testrig/media/rainbow-original.png"),
 		map[string][]string{
 			"shortcode": {"new_emoji"},
 			"category":  {"Test Emojis"}, // this category doesn't exist yet
@@ -90,10 +90,10 @@ func (suite *EmojiCreateTestSuite) TestEmojiCreateNewCategory() {
 	suite.Equal(apiEmoji.StaticURL, dbEmoji.ImageStaticURL)
 	suite.NotEmpty(dbEmoji.ImagePath)
 	suite.NotEmpty(dbEmoji.ImageStaticPath)
-	suite.Equal("image/png", dbEmoji.ImageContentType)
+	suite.Equal("image/apng", dbEmoji.ImageContentType)
 	suite.Equal("image/png", dbEmoji.ImageStaticContentType)
 	suite.Equal(36702, dbEmoji.ImageFileSize)
-	suite.Equal(10413, dbEmoji.ImageStaticFileSize)
+	suite.Equal(6092, dbEmoji.ImageStaticFileSize)
 	suite.False(*dbEmoji.Disabled)
 	suite.NotEmpty(dbEmoji.URI)
 	suite.True(*dbEmoji.VisibleInPicker)
@@ -111,7 +111,7 @@ func (suite *EmojiCreateTestSuite) TestEmojiCreateNewCategory() {
 func (suite *EmojiCreateTestSuite) TestEmojiCreateExistingCategory() {
 	// set up the request
 	requestBody, w, err := testrig.CreateMultipartFormData(
-		"image", "../../../../testrig/media/rainbow-original.png",
+		testrig.FileToDataF("image", "../../../../testrig/media/rainbow-original.png"),
 		map[string][]string{
 			"shortcode": {"new_emoji"},
 			"category":  {"cute stuff"}, // this category already exists
@@ -163,10 +163,10 @@ func (suite *EmojiCreateTestSuite) TestEmojiCreateExistingCategory() {
 	suite.Equal(apiEmoji.StaticURL, dbEmoji.ImageStaticURL)
 	suite.NotEmpty(dbEmoji.ImagePath)
 	suite.NotEmpty(dbEmoji.ImageStaticPath)
-	suite.Equal("image/png", dbEmoji.ImageContentType)
+	suite.Equal("image/apng", dbEmoji.ImageContentType)
 	suite.Equal("image/png", dbEmoji.ImageStaticContentType)
 	suite.Equal(36702, dbEmoji.ImageFileSize)
-	suite.Equal(10413, dbEmoji.ImageStaticFileSize)
+	suite.Equal(6092, dbEmoji.ImageStaticFileSize)
 	suite.False(*dbEmoji.Disabled)
 	suite.NotEmpty(dbEmoji.URI)
 	suite.True(*dbEmoji.VisibleInPicker)
@@ -184,7 +184,7 @@ func (suite *EmojiCreateTestSuite) TestEmojiCreateExistingCategory() {
 func (suite *EmojiCreateTestSuite) TestEmojiCreateNoCategory() {
 	// set up the request
 	requestBody, w, err := testrig.CreateMultipartFormData(
-		"image", "../../../../testrig/media/rainbow-original.png",
+		testrig.FileToDataF("image", "../../../../testrig/media/rainbow-original.png"),
 		map[string][]string{
 			"shortcode": {"new_emoji"},
 			"category":  {""},
@@ -236,10 +236,10 @@ func (suite *EmojiCreateTestSuite) TestEmojiCreateNoCategory() {
 	suite.Equal(apiEmoji.StaticURL, dbEmoji.ImageStaticURL)
 	suite.NotEmpty(dbEmoji.ImagePath)
 	suite.NotEmpty(dbEmoji.ImageStaticPath)
-	suite.Equal("image/png", dbEmoji.ImageContentType)
+	suite.Equal("image/apng", dbEmoji.ImageContentType)
 	suite.Equal("image/png", dbEmoji.ImageStaticContentType)
 	suite.Equal(36702, dbEmoji.ImageFileSize)
-	suite.Equal(10413, dbEmoji.ImageStaticFileSize)
+	suite.Equal(6092, dbEmoji.ImageStaticFileSize)
 	suite.False(*dbEmoji.Disabled)
 	suite.NotEmpty(dbEmoji.URI)
 	suite.True(*dbEmoji.VisibleInPicker)
@@ -257,7 +257,7 @@ func (suite *EmojiCreateTestSuite) TestEmojiCreateNoCategory() {
 func (suite *EmojiCreateTestSuite) TestEmojiCreateAlreadyExists() {
 	// set up the request -- use a shortcode that already exists for an emoji in the database
 	requestBody, w, err := testrig.CreateMultipartFormData(
-		"image", "../../../../testrig/media/rainbow-original.png",
+		testrig.FileToDataF("image", "../../../../testrig/media/rainbow-original.png"),
 		map[string][]string{
 			"shortcode": {"rainbow"},
 		})
@@ -281,7 +281,7 @@ func (suite *EmojiCreateTestSuite) TestEmojiCreateAlreadyExists() {
 	suite.NoError(err)
 	suite.NotEmpty(b)
 
-	suite.Equal(`{"error":"Conflict: emoji with shortcode rainbow already exists"}`, string(b))
+	suite.Equal(`{"error":"Conflict: emoji with shortcode already exists"}`, string(b))
 }
 
 func TestEmojiCreateTestSuite(t *testing.T) {

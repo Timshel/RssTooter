@@ -17,18 +17,19 @@
 	along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-import React, { useEffect } from "react";
+import React, { useEffect, useMemo } from "react";
 import { Redirect, useParams } from "wouter";
 import { useComboBoxInput, useFileInput, useValue } from "../../../../lib/form";
 import useFormSubmit from "../../../../lib/form/submit";
 import { useBaseUrl } from "../../../../lib/navigation/util";
-import FakeToot from "../../../../components/fake-toot";
+import { FakeStatus } from "../../../../components/status";
 import FormWithData from "../../../../lib/form/form-with-data";
 import Loading from "../../../../components/loading";
 import { FileInput } from "../../../../components/form/inputs";
 import MutationButton from "../../../../components/form/mutation-button";
 import { Error } from "../../../../components/error";
 import { useGetEmojiQuery, useEditEmojiMutation, useDeleteEmojiMutation } from "../../../../lib/query/admin/custom-emoji";
+import { useInstanceV1Query } from "../../../../lib/query/gts-api";
 import { CategorySelect } from "../category-select";
 import BackButton from "../../../../components/back-button";
 
@@ -44,13 +45,18 @@ export default function EmojiDetail() {
 }
 
 function EmojiDetailForm({ data: emoji }) {
+	const { data: instance } = useInstanceV1Query();
+	const emojiMaxSize = useMemo(() => {
+		return instance?.configuration?.emojis?.emoji_size_limit ?? 50 * 1024;
+	}, [instance]);
+
 	const baseUrl = useBaseUrl();
 	const form = {
 		id: useValue("id", emoji.id),
 		category: useComboBoxInput("category", { source: emoji }),
 		image: useFileInput("image", {
 			withPreview: true,
-			maxSize: 50 * 1024 // TODO: get from instance api
+			maxSize: emojiMaxSize
 		})
 	};
 
@@ -124,14 +130,14 @@ function EmojiDetailForm({ data: emoji }) {
 						disabled={!form.image.value}
 					/>
 
-					<FakeToot>
+					<FakeStatus>
 						Look at this new custom emoji <img
 							className="emoji"
 							src={form.image.previewValue ?? emoji.url}
 							title={`:${emoji.shortcode}:`}
 							alt={emoji.shortcode}
 						/> isn&apos;t it cool?
-					</FakeToot>
+					</FakeStatus>
 
 					{result.error && <Error error={result.error} />}
 					{deleteResult.error && <Error error={deleteResult.error} />}

@@ -19,9 +19,11 @@ package federatingdb
 
 import (
 	"context"
+	"net/url"
 
 	"github.com/superseriousbusiness/activity/pub"
 	"github.com/superseriousbusiness/activity/streams/vocab"
+	"github.com/superseriousbusiness/gotosocial/internal/filter/interaction"
 	"github.com/superseriousbusiness/gotosocial/internal/filter/spam"
 	"github.com/superseriousbusiness/gotosocial/internal/filter/visibility"
 	"github.com/superseriousbusiness/gotosocial/internal/state"
@@ -43,6 +45,12 @@ type DB interface {
 	Reject(ctx context.Context, reject vocab.ActivityStreamsReject) error
 	Announce(ctx context.Context, announce vocab.ActivityStreamsAnnounce) error
 	Move(ctx context.Context, move vocab.ActivityStreamsMove) error
+
+	/*
+		Extra/convenience functionality.
+	*/
+
+	GetAccept(ctx context.Context, acceptIRI *url.URL) (vocab.ActivityStreamsAccept, error)
 }
 
 // FederatingDB uses the given state interface
@@ -51,6 +59,7 @@ type federatingDB struct {
 	state      *state.State
 	converter  *typeutils.Converter
 	visFilter  *visibility.Filter
+	intFilter  *interaction.Filter
 	spamFilter *spam.Filter
 }
 
@@ -60,12 +69,14 @@ func New(
 	state *state.State,
 	converter *typeutils.Converter,
 	visFilter *visibility.Filter,
+	intFilter *interaction.Filter,
 	spamFilter *spam.Filter,
 ) DB {
 	fdb := federatingDB{
 		state:      state,
 		converter:  converter,
 		visFilter:  visFilter,
+		intFilter:  intFilter,
 		spamFilter: spamFilter,
 	}
 	return &fdb

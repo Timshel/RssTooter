@@ -31,6 +31,7 @@ import (
 	"github.com/superseriousbusiness/gotosocial/internal/log"
 	"github.com/superseriousbusiness/gotosocial/internal/messages"
 	"github.com/superseriousbusiness/gotosocial/internal/uris"
+	"github.com/superseriousbusiness/gotosocial/internal/util"
 )
 
 func (p *Processor) getFaveableStatus(
@@ -62,11 +63,6 @@ func (p *Processor) getFaveableStatus(
 		return nil, nil, errWithCode
 	}
 
-	if !*target.Likeable {
-		err := errors.New("status is not faveable")
-		return nil, nil, gtserror.NewErrorForbidden(err, err.Error())
-	}
-
 	fave, err := p.state.DB.GetStatusFave(ctx, requester.ID, target.ID)
 	if err != nil && !errors.Is(err, db.ErrNoEntries) {
 		err = fmt.Errorf("getFaveTarget: error checking existing fave: %w", err)
@@ -77,32 +73,90 @@ func (p *Processor) getFaveableStatus(
 }
 
 // FaveCreate adds a fave for the requestingAccount, targeting the given status (no-op if fave already exists).
-func (p *Processor) FaveCreate(ctx context.Context, requestingAccount *gtsmodel.Account, targetStatusID string) (*apimodel.Status, gtserror.WithCode) {
-	targetStatus, existingFave, errWithCode := p.getFaveableStatus(ctx, requestingAccount, targetStatusID)
+func (p *Processor) FaveCreate(
+	ctx context.Context,
+	requester *gtsmodel.Account,
+	targetStatusID string,
+) (*apimodel.Status, gtserror.WithCode) {
+	status, existingFave, errWithCode := p.getFaveableStatus(ctx, requester, targetStatusID)
 	if errWithCode != nil {
 		return nil, errWithCode
 	}
 
 	if existingFave != nil {
 		// Status is already faveed.
-		return p.c.GetAPIStatus(ctx, requestingAccount, targetStatus)
+		return p.c.GetAPIStatus(ctx, requester, status)
 	}
 
-	// Create and store a new fave
+	// Ensure valid fave target for requester.
+	policyResult, err := p.intFilter.StatusLikeable(ctx,
+		requester,
+		status,
+	)
+	if err != nil {
+		err := gtserror.Newf("error seeing if status %s is likeable: %w", status.ID, err)
+		return nil, gtserror.NewErrorInternalError(err)
+	}
+
+	if policyResult.Forbidden() {
+		const errText = "you do not have permission to fave this status"
+		err := gtserror.New(errText)
+		return nil, gtserror.NewErrorForbidden(err, errText)
+	}
+
+	// Derive pendingApproval
+	// and preapproved status.
+	var (
+		pendingApproval bool
+		preApproved     bool
+	)
+
+	switch {
+	case policyResult.WithApproval():
+		// We're allowed to do
+		// this pending approval.
+		pendingApproval = true
+
+	case policyResult.MatchedOnCollection():
+		// We're permitted to do this, but since
+		// we matched due to presence in a followers
+		// or following collection, we should mark
+		// as pending approval and wait until we can
+		// prove it's been Accepted by the target.
+		pendingApproval = true
+
+		if *status.Local {
+			// If the target is local we don't need
+			// to wait for an Accept from remote,
+			// we can just preapprove it and have
+			// the processor create the Accept.
+			preApproved = true
+		}
+
+	case policyResult.Permitted():
+		// We're permitted to do this
+		// based on another kind of match.
+		pendingApproval = false
+	}
+
+	// Create a new fave, marking it
+	// as pending approval if necessary.
 	faveID := id.NewULID()
 	gtsFave := &gtsmodel.StatusFave{
 		ID:              faveID,
-		AccountID:       requestingAccount.ID,
-		Account:         requestingAccount,
-		TargetAccountID: targetStatus.AccountID,
-		TargetAccount:   targetStatus.Account,
-		StatusID:        targetStatus.ID,
-		Status:          targetStatus,
-		URI:             uris.GenerateURIForLike(requestingAccount.Username, faveID),
+		AccountID:       requester.ID,
+		Account:         requester,
+		TargetAccountID: status.AccountID,
+		TargetAccount:   status.Account,
+		StatusID:        status.ID,
+		Status:          status,
+		URI:             uris.GenerateURIForLike(requester.Username, faveID),
+		PreApproved:     preApproved,
+		PendingApproval: &pendingApproval,
 	}
 
 	if err := p.state.DB.PutStatusFave(ctx, gtsFave); err != nil {
-		err = fmt.Errorf("FaveCreate: error putting fave in database: %w", err)
+		err = gtserror.Newf("db error putting fave: %w", err)
 		return nil, gtserror.NewErrorInternalError(err)
 	}
 
@@ -111,11 +165,28 @@ func (p *Processor) FaveCreate(ctx context.Context, requestingAccount *gtsmodel.
 		APObjectType:   ap.ActivityLike,
 		APActivityType: ap.ActivityCreate,
 		GTSModel:       gtsFave,
-		Origin:         requestingAccount,
-		Target:         targetStatus.Account,
+		Origin:         requester,
+		Target:         status.Account,
 	})
 
-	return p.c.GetAPIStatus(ctx, requestingAccount, targetStatus)
+	// If the fave target status replies to a status
+	// that we own, and has a pending interaction
+	// request, use the fave as an implicit accept.
+	implicitlyAccepted, errWithCode := p.implicitlyAccept(ctx,
+		requester, status,
+	)
+	if errWithCode != nil {
+		return nil, errWithCode
+	}
+
+	// If we ended up implicitly accepting, mark the
+	// target status as no longer pending approval so
+	// it's serialized properly via the API.
+	if implicitlyAccepted {
+		status.PendingApproval = util.Ptr(false)
+	}
+
+	return p.c.GetAPIStatus(ctx, requester, status)
 }
 
 // FaveRemove removes a fave for the requesting account, targeting the given status (no-op if fave doesn't exist).
